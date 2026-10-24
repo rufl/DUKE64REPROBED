@@ -193,6 +193,10 @@ static std::atomic_bool gameplay_active{false};
 // those two update points.
 static std::atomic_bool keyboard_enter_pending{false};
 static std::atomic_bool keyboard_escape_pending{false};
+static std::atomic_bool keyboard_up_pending{false};
+static std::atomic_bool keyboard_down_pending{false};
+static std::atomic_bool keyboard_left_pending{false};
+static std::atomic_bool keyboard_right_pending{false};
 
 extern "C" void duke64_set_gameplay_active(int state) {
     gameplay_active.store(state == 2, std::memory_order_relaxed);
@@ -493,13 +497,30 @@ static void update_gfx(void*) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
-            startup_skip_pending.store(true, std::memory_order_release);
             const SDL_Scancode scancode = event.key.keysym.scancode;
-            if (scancode == SDL_SCANCODE_RETURN || scancode == SDL_SCANCODE_KP_ENTER) {
+            startup_skip_pending.store(true, std::memory_order_release);
+            switch (scancode) {
+            case SDL_SCANCODE_RETURN:
+            case SDL_SCANCODE_KP_ENTER:
                 keyboard_enter_pending.store(true, std::memory_order_release);
-            }
-            else if (scancode == SDL_SCANCODE_ESCAPE) {
+                break;
+            case SDL_SCANCODE_ESCAPE:
                 keyboard_escape_pending.store(true, std::memory_order_release);
+                break;
+            case SDL_SCANCODE_UP:
+                keyboard_up_pending.store(true, std::memory_order_release);
+                break;
+            case SDL_SCANCODE_DOWN:
+                keyboard_down_pending.store(true, std::memory_order_release);
+                break;
+            case SDL_SCANCODE_LEFT:
+                keyboard_left_pending.store(true, std::memory_order_release);
+                break;
+            case SDL_SCANCODE_RIGHT:
+                keyboard_right_pending.store(true, std::memory_order_release);
+                break;
+            default:
+                break;
             }
         }
         else if (event.type == SDL_CONTROLLERBUTTONDOWN) {
@@ -536,6 +557,10 @@ static void update_gfx(void*) {
                  event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
             keyboard_enter_pending.store(false, std::memory_order_release);
             keyboard_escape_pending.store(false, std::memory_order_release);
+            keyboard_up_pending.store(false, std::memory_order_release);
+            keyboard_down_pending.store(false, std::memory_order_release);
+            keyboard_left_pending.store(false, std::memory_order_release);
+            keyboard_right_pending.store(false, std::memory_order_release);
             SDL_SetRelativeMouseMode(SDL_FALSE);
             mouse_turn = 0;
             mouse_look = 0;
@@ -700,6 +725,18 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
     const bool escape_active =
         pressed(SDL_SCANCODE_ESCAPE) ||
         keyboard_escape_pending.exchange(false, std::memory_order_acq_rel);
+    const bool up_active =
+        pressed(SDL_SCANCODE_UP) ||
+        keyboard_up_pending.exchange(false, std::memory_order_acq_rel);
+    const bool down_active =
+        pressed(SDL_SCANCODE_DOWN) ||
+        keyboard_down_pending.exchange(false, std::memory_order_acq_rel);
+    const bool left_active =
+        pressed(SDL_SCANCODE_LEFT) ||
+        keyboard_left_pending.exchange(false, std::memory_order_acq_rel);
+    const bool right_active =
+        pressed(SDL_SCANCODE_RIGHT) ||
+        keyboard_right_pending.exchange(false, std::memory_order_acq_rel);
     if (pressed(SDL_SCANCODE_LCTRL) || pressed(keyboard_bindings.fire) || mouse_left)
         state |= N64_Z;                                               // PC fire.
     if (pressed(keyboard_bindings.jump)) state |= N64_C_UP;            // PC jump.
@@ -709,17 +746,18 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
         state |= N64_START;                                           // Enter opens the gameplay menu.
     if (!gameplay && enter_active) state |= N64_A;                    // Enter selects menu items.
     if (escape_active) state |= N64_B;                                // Escape backs out of menus.
-    if (pressed(SDL_SCANCODE_UP) || mouse_look < -2) state |= N64_DPAD_UP;
-    if (pressed(SDL_SCANCODE_DOWN) || mouse_look > 2) state |= N64_DPAD_DOWN;
-    if (pressed(SDL_SCANCODE_LEFT) || pressed(keyboard_bindings.strafe_left))
+    if (up_active || mouse_look < -2) state |= N64_DPAD_UP;
+    if (down_active || mouse_look > 2) state |= N64_DPAD_DOWN;
+    if (left_active || pressed(keyboard_bindings.strafe_left))
         state |= N64_DPAD_LEFT;                                       // Arrow/A strafe left.
-    if (pressed(SDL_SCANCODE_RIGHT) || pressed(keyboard_bindings.strafe_right))
+    if (right_active || pressed(keyboard_bindings.strafe_right))
         state |= N64_DPAD_RIGHT;                                      // Arrow/D strafe right.
     if (pressed(keyboard_bindings.inventory_previous)) state |= N64_C_LEFT;
     if (pressed(keyboard_bindings.inventory_next)) state |= N64_C_RIGHT;
     if (pressed(keyboard_bindings.open)) state |= N64_R;                // Open/use.
     if (pressed(keyboard_bindings.previous_weapon) || pressed(SDL_SCANCODE_PAGEUP)) state |= N64_B;
     if (pressed(keyboard_bindings.next_weapon) || pressed(SDL_SCANCODE_PAGEDOWN)) state |= N64_A;
+    *buttons = state;
     *x = std::clamp(static_cast<float>(mouse_turn) * 0.75f * mouse_sensitivity, -80.0f, 80.0f);
     const bool move_backward = pressed(keyboard_bindings.move_backward);
     const bool move_forward = pressed(keyboard_bindings.move_forward);
