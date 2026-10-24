@@ -1,0 +1,6 @@
+[submodule "asm-processor"]
+	path = asm-processor
+	url = https://github.com/simonlindholm/asm-processor.git
+[submodule "lib/rt64"]
+	path = lib/rt64
+	url = https://github.com/rt64/rt64.git
