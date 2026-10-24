@@ -53,6 +53,7 @@ All notable changes to the Duke Nukem 64 recompilation are documented here.
 - Controller Pak replacement failures preserve the previous save and validate directory entries through `osPfsChecker`.
 - Audio command processing now lets ASP fetch command lists in bounded DMEM chunks instead of preloading oversized lists.
 - Fixed audio completion ordering by posting the SP completion after the scheduler records its current RSP task, avoiding completion stalls until the next VI.
+- Fixed host scheduler audio cadence by letting the audio client preempt scheduler dispatch and scheduling client-produced audio tasks again within the same VI.
 - Fixed the AI frequency bridge to return libultra's actual DAC-derived rate instead of the nominal request.
 - Fixed byte-swapped RDRAM audio buffers being passed directly to the host, which reversed interleaved stereo pairs.
 - Fixed Debug audio-task underruns by compiling the synchronous generated audio path and ASP at `-O2`.

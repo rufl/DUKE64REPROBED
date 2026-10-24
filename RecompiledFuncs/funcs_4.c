@@ -5264,8 +5264,8 @@ L_8004BE0C:
     ctx->r9 = ADD32(ctx->r9, -0XCB8);
     // 0x8004BE7C: lui         $a2, 0x8005
     ctx->r6 = S32(0X8005 << 16);
-    // 0x8004BE80: addiu       $t2, $zero, 0x1E
-    ctx->r10 = ADD32(0, 0X1E);
+    // 0x8004BE80: addiu       $t2, $zero, 0x41
+    ctx->r10 = ADD32(0, 0X41);
     // 0x8004BE84: sw          $t2, 0x14($sp)
     MEM_W(0X14, ctx->r29) = ctx->r10;
     // 0x8004BE88: addiu       $a2, $a2, -0x3CBC

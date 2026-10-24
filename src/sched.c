@@ -283,6 +283,21 @@ void __scHandleRetrace(OSSched *sc)
     for (client = sc->clientList; client != 0; client = client->next) {
         osSendMesg(client->msgQ, (OSMesg) &sc->retraceMsg, OS_MESG_NOBLOCK);
     }
+    /*
+     * Client threads build the next audio task in response to the retrace
+     * message above.  Give that task a same-retrace scheduling opportunity.
+     */
+    while (osRecvMesg(&sc->cmdQ, (OSMesg *)&rspTask, OS_MESG_NOBLOCK) != -1) {
+        __scAppendList(sc, rspTask);
+    }
+
+    if (sc->doAudio && sc->curRSPTask) {
+        __scYield(sc);
+    } else {
+        state = ((sc->curRSPTask == 0) << 1) | (sc->curRDPTask == 0);
+        if (__scSchedule(sc, &sp, &dp, state) != state)
+            __scExec(sc, sp, dp);
+    }
 }
 
 /*

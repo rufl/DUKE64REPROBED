@@ -128,41 +128,30 @@ The old full-list preload behavior is intentionally not used. ASP fetches the li
 
 The byte-wise path avoids host alignment assumptions and preserves unaligned or partial command data exactly.
 
-## 6. Complete audio tasks in scheduler order
+## 6. Keep audio tasks on the same retrace
 
 ### Root cause
 
-The host RSP completion path originally enqueued an external SP message. External messages were applied when game code entered the message-queue wrappers, but the scheduler itself could be blocked waiting for an interrupt-queue message. An audio task could therefore finish on the host while the scheduler did not consume completion until a later VI. The audio manager waited on its completion queue, client queues accumulated, and the SDL device could underrun.
+The PC scheduler dispatch thread runs at virtual priority `64`, while the audio client originally ran at priority `30`. On a retrace, the scheduler drained its command queue and then notified the clients. The lower-priority audio client could not run until the scheduler had already finished that dispatch pass, so its next audio task arrived one VI late. The observed cadence was about 30 audio-handler calls per second instead of 60, which made the host SDL queue underrun and made music sound slow and jittery.
 
-### Runtime dispatch
+### Same-retrace scheduling
 
-`N64ModernRuntime/ultramodern/src/events.cpp` now dispatches task types as follows:
+The host-side scheduler ordering now matches the intended client handoff:
+
+- `Duke64-RE/src/main.c` creates the audio client at priority `65`, just above the scheduler dispatch thread, so the client can submit its next task immediately after the retrace message.
+- `Duke64-RE/src/sched.c` drains client-produced commands and repeats the scheduling decision after sending retrace messages. The task submitted by the audio client can therefore start in the same VI.
+- `Duke64-RE/RecompiledFuncs/funcs_4.c` and `funcs_14.c` carry the same priority and same-retrace behavior in the checked-in generated executable.
+
+### Runtime dispatch and completion
+
+`N64ModernRuntime/ultramodern/src/events.cpp` dispatches task types as follows:
 
 - `M_GFXTASK`: enqueue the task on the graphics action queue.
 - `M_AUDTASK`: call `ultramodern::rsp::run_task` synchronously.
 - Other task types: retain the existing asynchronous SP task queue.
 
-Synchronous execution makes the audio handler finish before the scheduler posts the corresponding completion event.
+The generated scheduler records its current task before completing it. For an audio task it then calls `static_5_8004C8A0` inline, which posts the task's completion message and lets the scheduler continue immediately. Other task types use the permanent `ultramodern_complete_sp_task(rdram)` bridge, which sends the SP message directly under the runtime message mutex. This avoids both stale scheduler state and the external-event delay that previously pushed completion into a later VI.
 
-### Completion bridge
-
-The generated scheduler function in `Duke64-RE/RecompiledFuncs/funcs_14.c` checks the OS task type at offset `0x10` (`2` is `M_AUDTASK`) after writing the current task to the scheduler state at offset `0x274`. It then calls:
-
-```c
-ultramodern_complete_sp_task(rdram);
-```
-
-The call is present in both scheduler branches: the branch that changes the current task and the branch that updates both current and next task state.
-
-`N64ModernRuntime/ultramodern/src/events.cpp` implements the bridge by queueing the existing external SP message under `message_mutex`:
-
-```cpp
-extern "C" void ultramodern_complete_sp_task(uint8_t* rdram) {
-    complete_sp_task_sync(rdram);
-}
-```
-
-The helper deliberately does not call `osSendMesg` directly. It uses the external-event queue, but only after the generated scheduler has recorded the current task. This ordering avoids consuming the message against stale scheduler state and avoids the scheduler deadlock caused by trying to send directly into the scheduler's queue from the synchronous path. The ordinary `sp_complete()` path remains for asynchronous non-audio work.
 
 ## 7. Account for the SDL host queue
 
@@ -205,7 +194,7 @@ The Duke runtime also sets `config.message_queue_control.requeue_vi = true`, pre
 
 ## 8. Keep synchronous audio work within the VI cadence
 
-Audio RSP tasks execute synchronously so the generated scheduler sees completion in order. In a Debug build, CMake normally compiles generated C and the ASP translation unit at `-O0`; the audio task can then exceed the 16.67 ms VI interval and drain the host queue. `Duke64-RE/CMakeLists.txt` adds `-O2` for those generated/runtime target sources in Debug builds while retaining debug symbols. This keeps the synchronous task within the cadence without changing the generated semantics.
+Audio RSP tasks execute synchronously so the generated scheduler sees completion in order. The same-retrace scheduling pass is still required: synchronous execution makes each task fast, but it does not cause a lower-priority audio client to submit the following task before the scheduler finishes its first dispatch pass. In a Debug build, CMake normally compiles generated C and the ASP translation unit at `-O0`; the audio task can then exceed the 16.67 ms VI interval and drain the host queue. `Duke64-RE/CMakeLists.txt` adds `-O2` for those generated/runtime target sources in Debug builds while retaining debug symbols. This keeps the synchronous task within the cadence without changing the generated semantics.
 
 ## 9. Keep Windows VI deadlines precise
 
@@ -213,40 +202,39 @@ Audio RSP tasks execute synchronously so the generated scheduler sees completion
 
 ## 10. Generated-source cleanup
 
-Temporary diagnostic instrumentation was removed after the scheduler ordering and queue behavior were confirmed:
+The checked-in generated sources contain only the permanent audio scheduling and completion hooks; temporary diagnostic instrumentation was removed after the scheduler ordering and queue behavior were confirmed:
 
 - `Duke64-RE/RecompiledFuncs/funcs_3.c` retains the permanent `recomp_set_audio_command_list` call but no frame/timing logging or Windows diagnostic includes.
-- `Duke64-RE/RecompiledFuncs/funcs_14.c` retains the permanent bridge declaration and scheduler hook but no scheduler probe logging.
-- The runtime sources retain no `audio-debug`, `vi-debug`, or `debug_` probes from the investigation.
+- `Duke64-RE/RecompiledFuncs/funcs_4.c` mirrors the source audio-client priority of `65`.
+- `Duke64-RE/RecompiledFuncs/funcs_14.c` contains the same-retrace scheduling pass and the permanent completion bridge, but no scheduler probe logging.
+- `N64ModernRuntime/ultramodern/src/events.cpp` contains the direct completion bridge and no `audio-debug`, `vi-debug`, or `debug_` probes from the investigation.
 
-The generated C files are artifacts. When regenerating them, verify that the manual function boundaries still produce the complete functions and that the two permanent bridge hooks are still present. The TOML files preserve the function-size and ASP-target inputs, but generated-file custom hooks should not be assumed to survive an unrelated regeneration step.
+The generated C files are artifacts. When regenerating them, verify that the manual function boundaries still produce the complete functions and that the permanent priority, same-retrace pass, and completion hooks are still present. The TOML files preserve the function-size and ASP-target inputs, but generated-file custom hooks should not be assumed to survive an unrelated regeneration step.
 
 ## Verification record
 
 ### Build
 
-From the repository root:
+From the repository root, using the existing Ninja configurations:
 
 ```powershell
-cmake -S Duke64-RE -B Duke64-RE/build-pc-rt64-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
 ninja -C Duke64-RE/build-pc-rt64-debug Duke64Recompiled
+ninja -C Duke64-RE/build-pc-rt64-release Duke64Recompiled
 ```
 
-The build completed successfully. The linker emitted the existing warning that both `wmain` and `main` were found and that it used `main`.
-The updated debug and release targets both rebuilt `ultramodern/src/audio.cpp` and `ultramodern/src/timer.cpp` successfully. The same existing linker warning was the only reported warning.
-
+Both targets completed successfully. The build emitted the existing `GamepadMotion.hpp` block-comment warnings and the existing linker warning that both `wmain` and `main` were found and that it used `main`; no new build failure occurred.
 
 ### Executable smoke runs
 
 ```powershell
-timeout 5s Duke64-RE/build-pc-rt64-debug/Duke64Recompiled.exe
 $env:SDL_AUDIODRIVER = "dummy"
-timeout 5s Duke64-RE/build-pc-rt64-debug/Duke64Recompiled.exe
+Duke64-RE/build-pc-rt64-release/Duke64Recompiled.exe
 ```
 
-Both runs stayed alive for the full interval without audio conversion, queue, or runtime errors. Exit code `124` is expected from the timeout wrapper. The rebuilt executable was also launched for eight seconds through `cmd.exe` with `SDL_AUDIODRIVER=dummy`; it remained alive until the timeout (`124`) without diagnostic output.
-After these changes, a ROM-backed Release executable launched with `SDL_AUDIODRIVER=dummy`, initialized the Intel Arc renderer and recomp heap, and remained alive for the supervised smoke interval without audio conversion, queue, or scheduler diagnostics. The harness then stopped it.
+The ROM-backed Release executable initialized the Intel Arc renderer and recomp heap, remained alive for approximately 25 seconds, accepted an Enter input, and produced no audio, queue, scheduler, or runtime error output before the harness stopped it.
+
+Before removing the temporary probes, an instrumented run of this same scheduling change processed `720` scheduler retraces and `720` audio frames in `11,988 ms`. It queued `521,152` source samples at the actual `22,047 Hz` AI rate and kept the audio frame queue at zero. The probes were removed after this cadence check.
 
 ### Verification scope
 
-The smoke runs verify executable startup and the live SDL audio initialization, conversion, queue, and scheduler path. They are not a subjective listening test or a waveform comparison.
+The builds verify both generated targets. The supervised run verifies executable startup and live SDL audio initialization, conversion, queue, and scheduler paths. The cadence run verifies one audio task per 60 Hz retrace. The dummy SDL driver is not a subjective listening test or a waveform comparison.

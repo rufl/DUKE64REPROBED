@@ -1,6 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-
 RECOMP_FUNC void sound(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;

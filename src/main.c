@@ -350,7 +350,9 @@ void mainproc(void* a1)
 	copyfromrom(palettes, (u32)palettes_rom, (u32)palettes_rom_end - (u32)palettes_rom);
 	osCreateScheduler2(&scheduler, &D_8011F5D0[16384], 64, 1);
 	osCreateThread(&contThread, 5, controllerThread, a1, &D_80117198[16384], 20);
-	osCreateThread(&audioThread, 6, __amMain, a1, &D_8011B348[16384], 30);
+	/* The host scheduler lets audio preempt dispatch so its next task is
+	 * submitted before the same-retrace scheduling pass. */
+	osCreateThread(&audioThread, 6, __amMain, a1, &D_8011B348[16384], 65);
 	soundSetupMsgQueue();
 	soundInit();
 	controllervibdisable();

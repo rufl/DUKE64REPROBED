@@ -112,7 +112,6 @@ static void queue_samples(int16_t* samples, size_t sample_count) {
         audio_stream = create_audio_stream(audio_frequency);
         if (audio_stream == nullptr) {
             std::fprintf(stderr, "SDL audio conversion initialization failed: %s\n", SDL_GetError());
-            return;
         }
     }
     constexpr size_t max_chunk_samples =

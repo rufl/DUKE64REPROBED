@@ -176,6 +176,7 @@ Press `F12` during gameplay to write a 32-bit BMP screenshot to the active user-
 The recompiled audio path includes the ASP indirect-branch target table, FIFO command-list handoff, exact byte copies for unaligned audio command data, synchronous audio-task execution, and scheduler completion ordering. These fixes keep generated RSP audio execution aligned with the original command stream, prevent stale or partially copied commands, and ensure audio completion is posted after the scheduler records its current task.
 
 The host path converts byte-swapped N64 stereo samples into host-native samples, returns libultra's actual DAC-derived rate, and resamples that source rate through SDL's `AUDIO_S16SYS` `SDL_AudioStream` to a fixed 48 kHz stereo device with a 1024-sample buffer. Queue depth is converted back to source-rate frames for `osAiGetLength`, and rate changes drain the old stream before switching. See [AUDIO_PATCHES.md](AUDIO_PATCHES.md) for the complete patch record, affected files, regeneration notes, and verification evidence.
+The host scheduler gives the audio client a higher virtual priority and drains client-produced tasks again within the same retrace. Generated audio completion is handled inline after the current task is recorded, preventing the one-VI-late cadence that caused slow or jittery music.
 
 The AI bridge applies the N64 audio DMA length granularity (eight-byte units) before copying samples, matching the hardware contract used by the reference emulation path.
 

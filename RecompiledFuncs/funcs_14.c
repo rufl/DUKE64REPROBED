@@ -8295,6 +8295,43 @@ L_8004C86C:
     // 0x8004C880: lw          $a0, 0x4($s0)
     ctx->r4 = S32(MEM_W(ctx->r16, 0X4));
     skip_4:
+    ctx->r4 = ctx->r18 | 0;
+    ctx->r5 = ctx->r19 | 0;
+    ctx->r6 = 0 | 0;
+    osRecvMesg_recomp(rdram, ctx);
+    while (ctx->r2 != ADD32(0, -0X1)) {
+        ctx->r4 = ctx->r17 | 0;
+        ctx->r5 = S32(MEM_W(ctx->r29, 0X44));
+        static_5_8004CBE0(rdram, ctx);
+        ctx->r4 = ctx->r18 | 0;
+        ctx->r5 = ctx->r19 | 0;
+        ctx->r6 = 0 | 0;
+        osRecvMesg_recomp(rdram, ctx);
+    }
+    ctx->r24 = S32(MEM_W(ctx->r17, 0X280));
+    ctx->r8 = S32(MEM_W(ctx->r17, 0X274));
+    if (ctx->r24 != 0 && ctx->r8 != 0) {
+        ctx->r4 = ctx->r17 | 0;
+        static_5_8004CD58(rdram, ctx);
+    }
+    else {
+        ctx->r4 = ctx->r17 | 0;
+        ctx->r5 = ADD32(ctx->r29, 0X34);
+        ctx->r6 = ADD32(ctx->r29, 0X30);
+        ctx->r9 = ctx->r8 < 0X1 ? 1 : 0;
+        ctx->r10 = S32(ctx->r9 << 1);
+        ctx->r11 = S32(MEM_W(ctx->r17, 0X278));
+        ctx->r12 = ctx->r11 < 0X1 ? 1 : 0;
+        ctx->r16 = ctx->r10 | ctx->r12;
+        ctx->r7 = ctx->r16 | 0;
+        static_5_8004CD94(rdram, ctx);
+        if (ctx->r2 != ctx->r16) {
+            ctx->r4 = ctx->r17 | 0;
+            ctx->r5 = S32(MEM_W(ctx->r29, 0X34));
+            ctx->r6 = S32(MEM_W(ctx->r29, 0X30));
+            static_5_8004CC48(rdram, ctx);
+        }
+    }
     // 0x8004C884: lw          $ra, 0x24($sp)
     ctx->r31 = S32(MEM_W(ctx->r29, 0X24));
 L_8004C888:
@@ -8307,9 +8344,6 @@ L_8004C888:
     // 0x8004C894: lw          $s3, 0x20($sp)
     ctx->r19 = S32(MEM_W(ctx->r29, 0X20));
     // 0x8004C898: jr          $ra
-    // 0x8004C89C: addiu       $sp, $sp, 0x48
-    ctx->r29 = ADD32(ctx->r29, 0X48);
-    return;
     // 0x8004C89C: addiu       $sp, $sp, 0x48
     ctx->r29 = ADD32(ctx->r29, 0X48);
 ;}
@@ -17406,7 +17440,11 @@ L_8004CCD0:
     if (ctx->r16 != ctx->r17) {
         // 0x8004CCFC: sw          $s0, 0x274($t5)
         MEM_W(0X274, ctx->r13) = ctx->r16;
-        if (MEM_W(0X10, ctx->r16) == 2 /* M_AUDTASK */) {
+        if (MEM_W(0X10, ctx->r16) == 0X2) {
+            ctx->r4 = ctx->r13 | 0;
+            static_5_8004C8A0(rdram, ctx);
+        }
+        else {
             ultramodern_complete_sp_task(rdram);
         }
             goto L_8004CD04;
@@ -17415,7 +17453,11 @@ L_8004CCD0:
     MEM_W(0X274, ctx->r13) = ctx->r16;
     // 0x8004CD00: sw          $s1, 0x278($t5)
     MEM_W(0X278, ctx->r13) = ctx->r17;
-    if (MEM_W(0X10, ctx->r16) == 2 /* M_AUDTASK */) {
+    if (MEM_W(0X10, ctx->r16) == 0X2) {
+        ctx->r4 = ctx->r13 | 0;
+        static_5_8004C8A0(rdram, ctx);
+    }
+    else {
         ultramodern_complete_sp_task(rdram);
     }
 L_8004CD04:
