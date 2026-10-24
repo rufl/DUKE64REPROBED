@@ -231,7 +231,7 @@ $env:SDL_AUDIODRIVER = "dummy"
 Duke64-RE/build-pc-rt64-release/Duke64Recompiled.exe
 ```
 
-The ROM-backed Release executable initialized the Intel Arc renderer and recomp heap, remained alive for approximately 25 seconds, accepted an Enter input, and produced no audio, queue, scheduler, or runtime error output before the harness stopped it.
+The ROM-backed Release executable initialized the Intel Arc renderer and recomp heap, remained alive for approximately 25 seconds while the harness sent an Enter input, and produced no audio, queue, scheduler, or runtime error output before the harness stopped it.
 
 Before removing the temporary probes, an instrumented run of this same scheduling change processed `720` scheduler retraces and `720` audio frames in `11,988 ms`. It queued `521,152` source samples at the actual `22,047 Hz` AI rate and kept the audio frame queue at zero. The probes were removed after this cadence check.
 
