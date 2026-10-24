@@ -1,5 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
+#include "duke64_asset_hooks.h"
 
 RECOMP_FUNC void func_8005C4D4(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -28359,6 +28360,10 @@ RECOMP_FUNC void rotatepoint(uint8_t* rdram, recomp_context* ctx) {
 RECOMP_FUNC void spritesound(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+    if (duke64_try_play_external_sound((int)(ctx->r4 & 0xFFFF), (int)(ctx->r5 & 0xFFFF))) {
+        ctx->r2 = 0;
+        return;
+    }
     // 0x80059034: addiu       $sp, $sp, -0x20
     ctx->r29 = ADD32(ctx->r29, -0X20);
     // 0x80059038: andi        $v1, $a0, 0xFFFF

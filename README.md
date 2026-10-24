@@ -69,7 +69,7 @@ Important files and directories are:
 | Path | Purpose |
 | --- | --- |
 | `dukenukem.z64` | Cached ROM selected by the launcher or discovered at startup. |
-| `duke64.json` | Window, mouse, controller, gyro, and keyboard settings. |
+| `duke64.json` | Window, frame-rate, mouse, controller, gyro, and keyboard settings. |
 | `duke64.mempak` | Persistent Controller Pak data. |
 | `screenshots\duke64-N.bmp` | Numbered F12 screenshots. |
 
@@ -138,6 +138,7 @@ Controller and mouse behavior is configured in `duke64.json`:
     "mouse_sensitivity": 1.0,
     "window_width": 1280,
     "window_height": 720,
+    "frame_rate": "60",
     "controller_deadzone": 0.24,
     "gyro_sensitivity": 0.0,
     "controller_sensitivity": 1.0,
@@ -162,10 +163,11 @@ Controller and mouse behavior is configured in `duke64.json`:
 ```
 
 `window_width` and `window_height` are clamped to `640–7680` and `360–4320`. `mouse_sensitivity`, `controller_sensitivity`, and `gyro_sensitivity` accept `0.0–4.0`; a gyro sensitivity of `0.0` disables motion aiming. `controller_deadzone` accepts `0.0–0.9`. Keyboard values use SDL scancode names. Invalid or missing keyboard entries fall back to defaults.
+`frame_rate` accepts `"30"`, `"60"`, `"90"`, `"120"`, `"144"`, `"165"`, `"240"`, `"360"`, or `"unlocked"`; it defaults to `"60"`. Fixed values request RT64 pacing/interpolation at that rate when supported. `"unlocked"` disables v-sync and the software pacing sleep, so tearing is possible and the achievable rate is limited by renderer throughput. Restart after editing this setting.
 
 Press `Alt+Enter` to toggle borderless fullscreen. Relative mouse capture is released while the window is unfocused and restored when focus returns.
 
-Press `F3` to toggle a brief rendering diagnostics overlay showing measured presented FPS, display refresh rate, active graphics API, backbuffer size, resolution scale, and presentation mode.
+Press `F3` to toggle a brief rendering diagnostics overlay showing measured presented FPS, configured frame-rate target, display refresh rate, active graphics API, backbuffer size, resolution scale, and presentation mode.
 
 ## Screenshots
 
@@ -181,6 +183,125 @@ The host scheduler gives the audio client a higher virtual priority and drains c
 The AI bridge applies the N64 audio DMA length granularity (eight-byte units) before copying samples, matching the hardware contract used by the reference emulation path.
 
 On Windows, the runtime requests a 1 ms timer resolution before starting the VI thread. This prevents the default coarse `Sleep` quantum from delaying the absolute 60 Hz VI deadlines that drive audio and rendering. The emulated NTSC cadence remains 60 Hz by design; the renderer is not given an additional host-side frame cap beyond RT64's display/present pacing.
+
+## Mods and asset packs
+
+The runtime uses the existing N64ModernRuntime mod scanner and stores user mods in the
+active data directory's `mods` folder. This is `%LOCALAPPDATA%\Duke64Recompiled\mods`
+unless portable mode is enabled. Loose mod directories and `.nrm` packages are always
+supported. Source-port-style `.zip`, `.pk3`, and `.pk4` packages are also discovered;
+`.rtz` is accepted for a standalone RT64 texture pack. A package may contain `mod.json`,
+but the source-port-style containers can omit it and receive a default manifest based on
+the filename.
+
+The layout is intentionally close to the EDuke32/Raze workflow while remaining a native
+Duke64 format:
+
+```text
+my-pack/
+  mod.json
+  duke64.assets.json
+  assets/
+    textures/
+      rt64.json
+      textures/*.dds
+    voxels.json
+    voxels/
+      123.vox
+    sounds.json
+    sounds/
+      pistol.wav
+    music.json
+    music/
+      e1m1.wav
+```
+
+`mod.json` uses the runtime manifest schema:
+
+```json
+{
+    "game_id": "dukenukem",
+    "id": "my-pack",
+    "display_name": "My Duke64 Pack",
+    "version": "1.0.0",
+    "authors": ["Author"],
+    "minimum_recomp_version": "0.1.0",
+    "enabled_by_default": true
+}
+```
+
+`duke64.assets.json` selects the optional asset indexes. Every path is package-relative;
+absolute paths and `..` traversal are rejected.
+
+```json
+{
+    "version": 1,
+    "textures": "assets/textures",
+    "voxels": "assets/voxels.json",
+    "sounds": "assets/sounds.json",
+    "music": "assets/music.json"
+}
+```
+
+### Texture packs
+
+Textures use RT64's existing replacement database. `textures` points at a directory
+containing `rt64.json`, or directly at that file. DDS and PNG files referenced by the
+database are loaded from the same directory. A standalone `.rtz` package contains
+`rt64.json` at its root.
+
+### Voxel indexes
+
+Voxel entries use numeric Duke tile IDs and MagicaVoxel `.vox` files:
+
+```json
+{
+    "version": 1,
+    "entries": [
+        {
+            "tile": 123,
+            "model": "assets/voxels/123.vox",
+            "texture": "assets/textures/123.dds"
+        }
+    ]
+}
+```
+
+The loader validates the VOX container and records the tile mapping before gameplay
+starts. RT64 currently exposes texture replacement, not a model replacement API. The
+optional `texture` path is validated as a companion asset and must also be referenced
+by an RT64 database; it is not an automatic tile remap. No voxel model is silently
+treated as a texture.
+
+### Sound effects and music
+
+Both audio indexes use numeric IDs and PCM/IEEE-float WAV files:
+
+```json
+{
+    "version": 1,
+    "entries": [
+        { "id": 42, "file": "assets/sounds/pistol.wav", "volume": 1.0 }
+    ]
+}
+```
+
+`sounds.json` IDs replace the corresponding `spritesound` call. `music.json` IDs replace
+tracks started by the game's song-start path and loop through the host SDL audio queue.
+`stopsong` stops the external track. WAV input is converted to stereo `S16` and resampled
+to the device rate by SDL; unsupported or malformed audio is skipped with a diagnostic.
+
+### Ordering and toggling
+
+Vanilla assets are the base layer. Enabled mods are applied in the order shown by
+`mods.json`; a later mod wins when it defines the same RT64 texture hash, sound ID, or
+music ID. Asset packs are loaded before the game entry point and are not runtime
+toggleable, avoiding renderer/audio state races. Reordering mods before the next launch
+changes the override precedence.
+
+The package conventions borrow only resource-loading ideas from EDuke32 and Raze; no
+GPL source code is linked into Duke64-RE. The upstream projects and their licenses remain
+separate from this repository's generated game code and user-created assets.
 
 ## Save safety
 

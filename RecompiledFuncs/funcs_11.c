@@ -1,5 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
+#include "duke64_asset_hooks.h"
 
 RECOMP_FUNC void dmulscale6(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -15071,6 +15072,7 @@ L_8004F998:
 RECOMP_FUNC void stopsong(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+    duke64_stop_external_music();
     // 0x800585D4: addiu       $sp, $sp, -0x18
     ctx->r29 = ADD32(ctx->r29, -0X18);
     // 0x800585D8: sw          $ra, 0x14($sp)

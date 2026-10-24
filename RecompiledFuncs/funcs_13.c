@@ -1,5 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
+#include "duke64_asset_hooks.h"
 
 RECOMP_FUNC void __vsPan(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -10947,6 +10948,9 @@ RECOMP_FUNC void mulscale14(uint8_t* rdram, recomp_context* ctx) {
 RECOMP_FUNC void func_80057E28(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+    if (duke64_try_start_external_music((int)ctx->r4)) {
+        return;
+    }
     // 0x80057E28: addiu       $sp, $sp, -0x18
     ctx->r29 = ADD32(ctx->r29, -0X18);
     // 0x80057E2C: sw          $a0, 0x18($sp)

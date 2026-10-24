@@ -1,5 +1,96 @@
 #include "recomp.h"
 #include "funcs.h"
+#include <stdio.h>
+
+extern void duke64_set_display_settings(float gamma, float contrast);
+
+static int menus_display_gamma = 100;
+static int menus_display_contrast = 100;
+
+static void menus_write_guest_string(uint8_t* rdram, gpr address, const char* text) {
+    size_t i = 0;
+    while (text[i] != '\0') {
+        MEM_B(i, address) = (int8_t)text[i];
+        ++i;
+    }
+    MEM_B(i, address) = 0;
+}
+
+static void menus_display_update(uint8_t* rdram) {
+    const uint16_t input = MEM_HU(0X0, S32(0X8027A3BE));
+    if ((input & 0XE333) == 0) {
+        return;
+    }
+
+    int* value = NULL;
+    int minimum = 0;
+    int maximum = 0;
+    const uint8_t selection = MEM_BU(0X0, S32(0X801012A8));
+    if (selection == 0) {
+        value = &menus_display_gamma;
+        minimum = 50;
+        maximum = 200;
+    }
+    else if (selection == 1) {
+        value = &menus_display_contrast;
+        minimum = 50;
+        maximum = 150;
+    }
+    else {
+        return;
+    }
+
+    int delta = 0;
+    if ((input & 0X222) != 0) {
+        delta = -5;
+    }
+    else if ((input & 0X111) != 0) {
+        delta = 5;
+    }
+    else {
+        return;
+    }
+
+    *value += delta;
+    if (*value < minimum) {
+        *value = minimum;
+    }
+    else if (*value > maximum) {
+        *value = maximum;
+    }
+    duke64_set_display_settings((float)menus_display_gamma / 100.0f, (float)menus_display_contrast / 100.0f);
+}
+
+static void menus_display_write_options(uint8_t* rdram) {
+    char text[32];
+    menus_write_guest_string(rdram, S32(0X8027A2A0), "DISPLAY OPTIONS");
+
+    snprintf(text, sizeof(text), "GAMMA %d.%02d", menus_display_gamma / 100, menus_display_gamma % 100);
+    menus_write_guest_string(rdram, S32(0X8027A2C8), text);
+
+    snprintf(text, sizeof(text), "CONTRAST %d.%02d", menus_display_contrast / 100, menus_display_contrast % 100);
+    menus_write_guest_string(rdram, S32(0X8027A2F0), text);
+
+    menus_write_guest_string(rdram, S32(0X8027A318), "MAIN MENU");
+}
+
+static int menus_display_slider_x(int value, int minimum, int maximum) {
+    const int normalized = (value - minimum) * 0X100 / (maximum - minimum);
+    return 0XA0 + (normalized - 0X80) / 2;
+}
+
+static void menus_display_draw_slider(uint8_t* rdram, recomp_context* ctx, int y, int value, int minimum, int maximum) {
+    ctx->r4 = ADD32(0, 0XA0);
+    ctx->r5 = ADD32(0, y);
+    ctx->r6 = ADD32(0, 0XE66);
+    rotatesprite_simplest(rdram, ctx);
+
+    ctx->f12.fl = (float)menus_display_slider_x(value, minimum, maximum);
+    ctx->f14.fl = (float)y;
+    MEM_W(0X10, ctx->r29) = 0XE67;
+    MEM_W(0X14, ctx->r29) = 0;
+    rotatesprite(rdram, ctx);
+}
 
 RECOMP_FUNC void func_80055060(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -17678,8 +17769,8 @@ L_800B7EA8:
     ctx->r25 = MEM_BU(ctx->r25, 0X12B0);
     // 0x800B7EC0: addiu       $t7, $t9, -0x1
     ctx->r15 = ADD32(ctx->r25, -0X1);
-    // 0x800B7EC4: sltiu       $at, $t7, 0x12
-    ctx->r1 = ctx->r15 < 0X12 ? 1 : 0;
+    // 0x800B7EC4: sltiu       $at, $t7, 0x13
+    ctx->r1 = ctx->r15 < 0X13 ? 1 : 0;
     // 0x800B7EC8: beq         $at, $zero, L_800BA494
     if (ctx->r1 == 0) {
         // 0x800B7ECC: sll         $t7, $t7, 2
@@ -17717,6 +17808,7 @@ L_800B7EA8:
         case 15: goto L_800B9C5C; break;
         case 16: goto L_800BA2DC; break;
         case 17: goto L_800B8424; break;
+        case 18: goto L_duke_display_options; break;
         default: switch_error(__func__, 0x800B7EDC, 0x801097E0);
     }
     // 0x800B7EE0: nop
@@ -21248,8 +21340,8 @@ L_800B92BC:
     // 0x800B92DC: sb          $t9, 0x36C8($at)
     MEM_B(0X36C8, ctx->r1) = ctx->r25;
 L_800B92E0:
-    // 0x800B92E0: addiu       $t6, $zero, 0x5
-    ctx->r14 = ADD32(0, 0X5);
+    // 0x800B92E0: addiu       $t6, $zero, 0x6
+    ctx->r14 = ADD32(0, 0X6);
     // 0x800B92E4: addiu       $t8, $zero, 0x5F
     ctx->r24 = ADD32(0, 0X5F);
     // 0x800B92E8: lui         $a0, 0x8028
@@ -21340,6 +21432,8 @@ L_800B92E0:
     // 0x800B9364: addiu       $a0, $a0, -0x5C98
     ctx->r4 = ADD32(ctx->r4, -0X5C98);
     after_94:
+    menus_write_guest_string(rdram, S32(0X8027A340), "DISPLAY OPTIONS");
+    menus_write_guest_string(rdram, S32(0X8027A368), "MAIN MENU");
     // 0x800B9368: lui         $t7, 0x8028
     ctx->r15 = S32(0X8028 << 16);
     // 0x800B936C: lhu         $t7, -0x5C42($t7)
@@ -21360,8 +21454,8 @@ L_800B92E0:
 
     // 0x800B9384: lbu         $t6, 0x0($t4)
     ctx->r14 = MEM_BU(ctx->r12, 0X0);
-    // 0x800B9388: sltiu       $at, $t6, 0x5
-    ctx->r1 = ctx->r14 < 0X5 ? 1 : 0;
+    // 0x800B9388: sltiu       $at, $t6, 0x6
+    ctx->r1 = ctx->r14 < 0X6 ? 1 : 0;
     // 0x800B938C: beq         $at, $zero, L_800B9430
     if (ctx->r1 == 0) {
         // 0x800B9390: sll         $t6, $t6, 2
@@ -21385,7 +21479,8 @@ L_800B92E0:
         case 1: goto L_800B93C4; break;
         case 2: goto L_800B93E0; break;
         case 3: goto L_800B93FC; break;
-        case 4: goto L_800B9418; break;
+        case 4: goto L_duke_options_display; break;
+        case 5: goto L_800B9418; break;
         default: switch_error(__func__, 0x800B93A0, 0x80109864);
     }
     // 0x800B93A4: nop
@@ -21458,6 +21553,25 @@ L_800B93FC:
         goto L_800BA494;
     // 0x800B9414: sb          $t6, 0x12B8($at)
     MEM_B(0X12B8, ctx->r1) = ctx->r14;
+L_duke_options_display:
+    ctx->r17 = ADD32(0, 0X13);
+    ctx->r1 = S32(0X8010 << 16);
+    MEM_B(0X12B4, ctx->r1) = ctx->r17;
+    ctx->r24 = ADD32(0, 0X6);
+    MEM_B(0X12B8, ctx->r1) = ctx->r24;
+        goto L_800BA494;
+
+L_duke_display_options:
+    MEM_H(0X8E, ctx->r29) = 3;
+    MEM_H(0X8C, ctx->r29) = 0X5F;
+    menus_display_update(rdram);
+    menus_display_write_options(rdram);
+    duke64_set_display_settings((float)menus_display_gamma / 100.0f, (float)menus_display_contrast / 100.0f);
+    menus_display_draw_slider(rdram, ctx, 0X73, menus_display_gamma, 50, 200);
+    menus_display_draw_slider(rdram, ctx, 0X87, menus_display_contrast, 50, 150);
+    ctx->r17 = ADD32(0, 0X1);
+        goto L_800BA498;
+
 L_800B9418:
     // 0x800B9418: addiu       $s1, $zero, 0x1
     ctx->r17 = ADD32(0, 0X1);

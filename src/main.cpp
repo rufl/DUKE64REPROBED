@@ -28,6 +28,8 @@
 #include "recomp_overlays.inl"
 #include "GamepadMotion.hpp"
 #include "ultramodern/threads.hpp"
+#include "mod_assets.hpp"
+#include "frame_rate.hpp"
 
 std::unique_ptr<ultramodern::renderer::RendererContext> create_render_context(uint8_t*, ultramodern::renderer::WindowHandle, bool);
 RspExitReason aspMain(uint8_t* rdram, uint32_t ucode_addr);
@@ -72,6 +74,16 @@ static constexpr SDL_AudioFormat audio_format = AUDIO_S16SYS;
 static constexpr int audio_device_buffer_samples = 1024;
 static uint32_t audio_frequency = 48000;
 static int audio_device_frequency = 48000;
+struct ExternalMusicState {
+    std::vector<int16_t> samples;
+    size_t cursor = 0;
+    uint32_t source_frequency = 0;
+    bool active = false;
+};
+static std::mutex audio_output_mutex;
+static ExternalMusicState external_music;
+static SDL_AudioStream* external_music_stream = nullptr;
+static constexpr Uint32 external_music_target_queue_bytes = 64 * 1024;
 static SDL_AudioStream* create_audio_stream(uint32_t source_frequency) {
     if (source_frequency == 0 || audio_device_frequency <= 0 ||
         source_frequency > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
@@ -104,15 +116,113 @@ static void drain_audio_stream(SDL_AudioStream* stream) {
         }
     }
 }
+static void release_external_music_stream() {
+    if (external_music_stream != nullptr) {
+        SDL_FreeAudioStream(external_music_stream);
+        external_music_stream = nullptr;
+    }
+}
+static void pump_external_music_locked() {
+    if (!external_music.active || audio_device == 0 || external_music.samples.empty()) {
+        return;
+    }
+    if (external_music_stream == nullptr) {
+        external_music_stream = create_audio_stream(external_music.source_frequency);
+        if (external_music_stream == nullptr) {
+            std::fprintf(stderr, "External music conversion initialization failed: %s\n", SDL_GetError());
+            external_music.active = false;
+            return;
+        }
+    }
+
+    while (external_music.active &&
+           SDL_GetQueuedAudioSize(audio_device) < external_music_target_queue_bytes) {
+        if (external_music.cursor >= external_music.samples.size()) {
+            external_music.cursor = 0;
+        }
+        const size_t remaining = external_music.samples.size() - external_music.cursor;
+        const size_t chunk_samples = std::min<size_t>(remaining, 8192);
+        if (chunk_samples == 0) {
+            external_music.active = false;
+            break;
+        }
+        const int result = SDL_AudioStreamPut(
+            external_music_stream,
+            external_music.samples.data() + external_music.cursor,
+            static_cast<int>(chunk_samples * sizeof(int16_t))
+        );
+        if (result != 0) {
+            std::fprintf(stderr, "External music conversion input failed: %s\n", SDL_GetError());
+            external_music.active = false;
+            break;
+        }
+        external_music.cursor += chunk_samples;
+        drain_audio_stream(external_music_stream);
+    }
+}
+extern "C" void duke64_audio_queue_samples(const int16_t* samples, size_t sample_count, uint32_t sample_rate) {
+    if (audio_device == 0 || samples == nullptr || sample_count == 0) {
+        return;
+    }
+    std::lock_guard lock(audio_output_mutex);
+    SDL_AudioStream* stream = create_audio_stream(sample_rate);
+    if (stream == nullptr) {
+        std::fprintf(stderr, "External sound conversion initialization failed: %s\n", SDL_GetError());
+        return;
+    }
+    constexpr size_t max_chunk_samples =
+        static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(int16_t);
+    size_t remaining = sample_count;
+    const int16_t* cursor = samples;
+    while (remaining > 0) {
+        size_t chunk_samples = std::min(remaining, max_chunk_samples);
+        if (chunk_samples < remaining && (chunk_samples & 1) != 0) {
+            --chunk_samples;
+        }
+        if (SDL_AudioStreamPut(
+                stream, cursor, static_cast<int>(chunk_samples * sizeof(int16_t))) != 0) {
+            std::fprintf(stderr, "External sound conversion input failed: %s\n", SDL_GetError());
+            break;
+        }
+        cursor += chunk_samples;
+        remaining -= chunk_samples;
+    }
+    drain_audio_stream(stream);
+    SDL_FreeAudioStream(stream);
+}
+extern "C" void duke64_audio_start_music(const int16_t* samples, size_t sample_count, uint32_t sample_rate) {
+    if (samples == nullptr || sample_count == 0 || sample_rate == 0) {
+        return;
+    }
+    std::lock_guard lock(audio_output_mutex);
+    external_music.samples.assign(samples, samples + sample_count);
+    external_music.cursor = 0;
+    external_music.source_frequency = sample_rate;
+    external_music.active = true;
+    release_external_music_stream();
+    pump_external_music_locked();
+}
+extern "C" void duke64_audio_stop_music() {
+    std::lock_guard lock(audio_output_mutex);
+    external_music.active = false;
+    external_music.samples.clear();
+    external_music.cursor = 0;
+    external_music.source_frequency = 0;
+    release_external_music_stream();
+}
 static void queue_samples(int16_t* samples, size_t sample_count) {
     if (audio_device == 0 || samples == nullptr || sample_count == 0) {
         return;
     }
+    std::lock_guard lock(audio_output_mutex);
     if (audio_stream == nullptr) {
         audio_stream = create_audio_stream(audio_frequency);
         if (audio_stream == nullptr) {
             std::fprintf(stderr, "SDL audio conversion initialization failed: %s\n", SDL_GetError());
         }
+    }
+    if (audio_stream == nullptr) {
+        return;
     }
     constexpr size_t max_chunk_samples =
         static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(int16_t);
@@ -130,6 +240,7 @@ static void queue_samples(int16_t* samples, size_t sample_count) {
         sample_count -= chunk_samples;
     }
     drain_audio_stream(audio_stream);
+    pump_external_music_locked();
 }
 static size_t get_frames_remaining() {
     if (audio_device == 0 || audio_frequency == 0 || audio_device_frequency <= 0) {
@@ -209,6 +320,52 @@ extern "C" int duke64_consume_startup_skip() {
     std::fprintf(stderr, "Startup screens skipped\n");
     return 1;
 }
+namespace duke64 {
+    static FrameRateMode configured_frame_rate = FrameRateMode::Fps60;
+
+    void set_frame_rate_mode(FrameRateMode mode) {
+        configured_frame_rate = mode;
+    }
+
+    FrameRateMode get_frame_rate_mode() {
+        return configured_frame_rate;
+    }
+
+    std::uint32_t get_frame_rate_target() {
+        switch (configured_frame_rate) {
+        case FrameRateMode::Fps30: return 30;
+        case FrameRateMode::Fps60: return 60;
+        case FrameRateMode::Fps90: return 90;
+        case FrameRateMode::Fps120: return 120;
+        case FrameRateMode::Fps144: return 144;
+        case FrameRateMode::Fps165: return 165;
+        case FrameRateMode::Fps240: return 240;
+        case FrameRateMode::Fps360: return 360;
+        case FrameRateMode::Unlocked: return 1000;
+        }
+        return 60;
+    }
+
+    const char* get_frame_rate_mode_name() {
+        switch (configured_frame_rate) {
+        case FrameRateMode::Fps30: return "30";
+        case FrameRateMode::Fps60: return "60";
+        case FrameRateMode::Fps90: return "90";
+        case FrameRateMode::Fps120: return "120";
+        case FrameRateMode::Fps144: return "144";
+        case FrameRateMode::Fps165: return "165";
+        case FrameRateMode::Fps240: return "240";
+        case FrameRateMode::Fps360: return "360";
+        case FrameRateMode::Unlocked: return "unlocked";
+        }
+        return "60";
+    }
+
+    bool is_frame_rate_unlocked() {
+        return configured_frame_rate == FrameRateMode::Unlocked;
+    }
+}
+
 static float controller_deadzone = 0.24f;
 static float controller_sensitivity = 1.0f;
 static float gyro_sensitivity = 0.0f;
@@ -238,6 +395,22 @@ static void load_input_config(const std::filesystem::path& data_path) {
     const auto scancode_name = [](SDL_Scancode scancode) {
         return std::string(SDL_GetScancodeName(scancode));
     };
+    const auto parse_frame_rate = [](const nlohmann::json& config) {
+        if (!config.contains("frame_rate") || !config["frame_rate"].is_string()) {
+            return duke64::FrameRateMode::Fps60;
+        }
+        const std::string value = config["frame_rate"].get<std::string>();
+        if (value == "30") return duke64::FrameRateMode::Fps30;
+        if (value == "60") return duke64::FrameRateMode::Fps60;
+        if (value == "90") return duke64::FrameRateMode::Fps90;
+        if (value == "120") return duke64::FrameRateMode::Fps120;
+        if (value == "144") return duke64::FrameRateMode::Fps144;
+        if (value == "165") return duke64::FrameRateMode::Fps165;
+        if (value == "240") return duke64::FrameRateMode::Fps240;
+        if (value == "360") return duke64::FrameRateMode::Fps360;
+        if (value == "unlocked") return duke64::FrameRateMode::Unlocked;
+        return duke64::FrameRateMode::Fps60;
+    };
     if (!std::filesystem::exists(config_path)) {
         std::ofstream output(config_path);
         if (output) {
@@ -245,6 +418,7 @@ static void load_input_config(const std::filesystem::path& data_path) {
                 {"mouse_sensitivity", mouse_sensitivity},
                 {"window_width", window_width},
                 {"window_height", window_height},
+                {"frame_rate", duke64::get_frame_rate_mode_name()},
                 {"controller_deadzone", controller_deadzone},
                 {"controller_sensitivity", controller_sensitivity},
                 {"gyro_sensitivity", gyro_sensitivity},
@@ -271,6 +445,7 @@ static void load_input_config(const std::filesystem::path& data_path) {
     }
     try {
         const nlohmann::json config = nlohmann::json::parse(std::ifstream(config_path));
+        duke64::set_frame_rate_mode(parse_frame_rate(config));
         mouse_sensitivity = std::clamp(config.value("mouse_sensitivity", mouse_sensitivity), 0.1f, 4.0f);
         window_width = std::clamp(config.value("window_width", window_width), 640, 7680);
         window_height = std::clamp(config.value("window_height", window_height), 360, 4320);
@@ -923,6 +1098,7 @@ int main(int argc, char** argv) {
         .entrypoint = recomp_entrypoint,
     };
     recomp::register_game(game);
+    duke64::register_mod_asset_content_types();
     recomp::overlays::register_manual_patch_symbols(manual_patch_symbols);
     recomp::overlays::register_overlays(
         { section_table, 2, num_sections },

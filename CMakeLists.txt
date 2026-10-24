@@ -29,6 +29,7 @@ target_include_directories(Duke64RecompiledFuncs PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../N64ModernRuntime/N64Recomp/include
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/contrib
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(Duke64RecompiledFuncs PRIVATE librecomp ultramodern)
 add_compile_definitions(NOMINMAX)
@@ -48,6 +49,7 @@ FetchContent_MakeAvailable(gamepad_motion_helpers)
 add_executable(Duke64Recompiled
     src/main.cpp
     src/rt64_render_context.cpp
+    src/mod_assets.cpp
     src/missing_funcs.c
     rsp/aspMain.cpp
     duke64.rc

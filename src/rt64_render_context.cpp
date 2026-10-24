@@ -1,9 +1,12 @@
+#include "render/rt64_vi_renderer.h"
 #include "hle/rt64_application.h"
 #include "ultramodern/renderer_context.hpp"
 #include "ultramodern/config.hpp"
 #include "gui/rt64_inspector.h"
 #include "rhi/rt64_render_hooks.h"
 #include "imgui/imgui.h"
+#include "mod_assets.hpp"
+#include "frame_rate.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -12,6 +15,10 @@
 #include <memory>
 #include <mutex>
 extern std::atomic<bool> render_diagnostics_visible;
+
+extern "C" void duke64_set_display_settings(float gamma, float contrast) {
+    RT64::setDisplaySettings(gamma, contrast);
+}
 
 namespace {
 uint8_t dmem[0x1000]{};
@@ -91,10 +98,17 @@ public:
         app->userConfig.filtering = RT64::UserConfiguration::Filtering::AntiAliasedPixelScaling;
         app->userConfig.upscale2D = RT64::UserConfiguration::Upscale2D::ScaledOnly;
         app->userConfig.threePointFiltering = true;
+        app->userConfig.refreshRate = duke64::is_frame_rate_unlocked()
+            ? RT64::UserConfiguration::RefreshRate::Unlocked
+            : RT64::UserConfiguration::RefreshRate::Manual;
+        app->userConfig.refreshRateTarget = static_cast<int>(duke64::get_frame_rate_target());
         app->userConfig.validate();
         setup_result = map_result(app->setup(handle.thread_id));
         chosen_api = ultramodern::renderer::GraphicsApi::Auto;
         if (setup_result == ultramodern::renderer::SetupResult::Success) {
+            if (duke64::is_frame_rate_unlocked() && app->swapChain != nullptr) {
+                app->swapChain->setVsyncEnabled(false);
+            }
             diagnostics = std::make_unique<RT64::Inspector>(
                 app->device.get(),
                 app->swapChain.get(),
@@ -103,6 +117,7 @@ public:
             );
             ImGui::GetIO().IniFilename = nullptr;
             active_context = this;
+            refresh_asset_packs();
             RT64::SetRenderHooks(nullptr, &draw_render_diagnostics, nullptr);
         }
         else {
@@ -115,6 +130,12 @@ public:
             RT64::SetRenderHooks(nullptr, nullptr, nullptr);
             active_context = nullptr;
         }
+    }
+    void refresh_asset_packs() {
+        if (!app || !app->textureCache) {
+            return;
+        }
+        app->textureCache->loadReplacementDirectories(duke64::get_texture_replacement_directories());
     }
     bool valid() override { return app != nullptr; }
     bool update_config(const ultramodern::renderer::GraphicsConfig& old_config, const ultramodern::renderer::GraphicsConfig& new_config) override {
@@ -171,6 +192,7 @@ public:
             const uint32_t width = app->swapChain ? app->swapChain->getWidth() : 0;
             const uint32_t height = app->swapChain ? app->swapChain->getHeight() : 0;
             ImGui::Text("FPS %.1f | Display %u Hz", measured_fps, get_display_framerate());
+            ImGui::Text("Target %s", duke64::get_frame_rate_mode_name());
             ImGui::Text("API %s | Backbuffer %ux%u", graphics_api_name(app->chosenGraphicsAPI), width, height);
             ImGui::Text("Scale %.2fx | Present %s", get_resolution_scale(), presentation_mode_name(app->enhancementConfig.presentation.mode));
             ImGui::TextUnformatted("F3: hide diagnostics");
@@ -236,6 +258,11 @@ static void draw_render_diagnostics(RenderCommandList* command_list,
         active_context->draw_diagnostics(command_list);
     }
 }
+}
+extern "C" void duke64_refresh_asset_packs() {
+    if (active_context != nullptr) {
+        active_context->refresh_asset_packs();
+    }
 }
 
 std::unique_ptr<ultramodern::renderer::RendererContext> create_render_context(uint8_t* rdram, ultramodern::renderer::WindowHandle handle, bool developer_mode) {
