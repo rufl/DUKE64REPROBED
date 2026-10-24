@@ -245,6 +245,12 @@ RECOMP_FUNC void display_logos(uint8_t* rdram, recomp_context* ctx) {
     // 0x80055694: sw          $s0, 0x20($sp)
     MEM_W(0X20, ctx->r29) = ctx->r16;
     after_0:
+    // The PC runtime owns persistent Controller Pak storage; skip the N64 startup check.
+    ctx->r1 = S32(0X800D << 16);
+    if (MEM_BU(ctx->r1, 0X3930) == 1) {
+        MEM_B(0X3930, ctx->r1) = 2;
+        MEM_B(0X3934, ctx->r1) = 2;
+    }
     // 0x80055698: lui         $v0, 0x800D
     ctx->r2 = S32(0X800D << 16);
     // 0x8005569C: addiu       $v0, $v0, 0x39A0

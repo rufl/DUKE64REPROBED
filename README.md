@@ -110,7 +110,7 @@ The default PC mapping is:
 | Previous menu | `Escape` |
 Enter opens the in-game menu during gameplay and selects the highlighted item in menus. `Escape` backs out of the current menu. Quick taps are latched across the SDL event and game-input threads.
 
-Press any keyboard key or controller button during the logo or intro screens to jump directly to the main menu.
+The PC build skips the startup Controller Pak check; saves and loads use the persistent virtual Pak. Press any keyboard key or controller button during the remaining logo or intro screens to jump directly to the main menu.
 
 Hold either Shift key to run. Press `Caps Lock` to toggle the same run modifier without holding Shift; press it again to return to walking. This changes movement speed only and does not affect menu navigation.
 
