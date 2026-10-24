@@ -108,6 +108,7 @@ The default PC mapping is:
 | Menu navigation | Arrow keys |
 | Menu select | `Enter` |
 | Previous menu | `Escape` |
+Enter opens the in-game menu during gameplay and selects the highlighted item in menus. `Escape` backs out of the current menu. Quick taps are latched across the SDL event and game-input threads.
 
 Press any keyboard key or controller button during the logo or intro screens to jump directly to the main menu.
 

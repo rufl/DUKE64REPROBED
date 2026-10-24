@@ -189,6 +189,11 @@ struct KeyboardBindings {
 static std::atomic_bool startup_skip_pending{false};
 static std::atomic_bool run_toggle{false};
 static std::atomic_bool gameplay_active{false};
+// SDL events are pumped on the graphics thread while the game samples input
+// on its own thread. Latch menu keys so quick taps cannot be missed between
+// those two update points.
+static std::atomic_bool keyboard_enter_pending{false};
+static std::atomic_bool keyboard_escape_pending{false};
 
 extern "C" void duke64_set_gameplay_active(int state) {
     gameplay_active.store(state == 2, std::memory_order_relaxed);
@@ -490,6 +495,13 @@ static void update_gfx(void*) {
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
             startup_skip_pending.store(true, std::memory_order_release);
+            const SDL_Scancode scancode = event.key.keysym.scancode;
+            if (scancode == SDL_SCANCODE_RETURN || scancode == SDL_SCANCODE_KP_ENTER) {
+                keyboard_enter_pending.store(true, std::memory_order_release);
+            }
+            else if (scancode == SDL_SCANCODE_ESCAPE) {
+                keyboard_escape_pending.store(true, std::memory_order_release);
+            }
         }
         else if (event.type == SDL_CONTROLLERBUTTONDOWN) {
             startup_skip_pending.store(true, std::memory_order_release);
@@ -523,6 +535,8 @@ static void update_gfx(void*) {
         }
         else if (event.type == SDL_WINDOWEVENT &&
                  event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+            keyboard_enter_pending.store(false, std::memory_order_release);
+            keyboard_escape_pending.store(false, std::memory_order_release);
             SDL_SetRelativeMouseMode(SDL_FALSE);
             mouse_turn = 0;
             mouse_look = 0;
@@ -679,13 +693,23 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
     auto pressed = [keys](SDL_Scancode key) { return keys[key] != 0; };
     uint16_t state = 0;
     const bool mouse_left = (mouse_buttons & SDL_BUTTON_LMASK) != 0;
+    const bool gameplay = gameplay_active.load(std::memory_order_relaxed);
+    const bool enter_active =
+        pressed(SDL_SCANCODE_RETURN) ||
+        pressed(SDL_SCANCODE_KP_ENTER) ||
+        keyboard_enter_pending.exchange(false, std::memory_order_acq_rel);
+    const bool escape_active =
+        pressed(SDL_SCANCODE_ESCAPE) ||
+        keyboard_escape_pending.exchange(false, std::memory_order_acq_rel);
     if (pressed(SDL_SCANCODE_LCTRL) || pressed(keyboard_bindings.fire) || mouse_left)
         state |= N64_Z;                                               // PC fire.
     if (pressed(keyboard_bindings.jump)) state |= N64_C_UP;            // PC jump.
     if (pressed(keyboard_bindings.crouch)) state |= N64_C_DOWN;        // PC crouch.
-    if (pressed(keyboard_bindings.start)) state |= N64_START;
-    if (pressed(SDL_SCANCODE_RETURN)) state |= N64_A;                  // Enter selects menu items.
-    if (pressed(SDL_SCANCODE_ESCAPE)) state |= N64_B;                 // Escape backs out of menus.
+    if (gameplay && (pressed(keyboard_bindings.start) ||
+                     (keyboard_bindings.start == SDL_SCANCODE_RETURN && enter_active)))
+        state |= N64_START;                                           // Enter opens the gameplay menu.
+    if (!gameplay && enter_active) state |= N64_A;                    // Enter selects menu items.
+    if (escape_active) state |= N64_B;                                // Escape backs out of menus.
     if (pressed(SDL_SCANCODE_UP) || mouse_look < -2) state |= N64_DPAD_UP;
     if (pressed(SDL_SCANCODE_DOWN) || mouse_look > 2) state |= N64_DPAD_DOWN;
     if (pressed(SDL_SCANCODE_LEFT) || pressed(keyboard_bindings.strafe_left))
