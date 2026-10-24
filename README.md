@@ -1,4 +1,4 @@
-# Duke Nukem 64 Recompiled
+# Duke Nukem 64 Reprobed
 
 This directory contains the PC build of the Duke Nukem 64 recompilation. The executable uses N64ModernRuntime, SDL2, and RT64 for runtime services, input, audio, and rendering.
 See the [repository overview](../README.md) for the downloadable first alpha package and GitHub release workflow.
