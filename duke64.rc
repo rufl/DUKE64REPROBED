@@ -1,0 +1,2 @@
+#define IDI_DUKE64 101
+IDI_DUKE64 ICON "assets/duke64.ico"

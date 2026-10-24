@@ -1,0 +1,2 @@
+__ull_div = 0x800BB7F8;
+__lookupVoice = 0x800CAB4C;

@@ -1,0 +1,15 @@
+[input]
+entrypoint = 0x8004B400
+elf_path = "build/dukenukem.elf"
+rom_file_path = "../Duke Nukem 64 (USA).z64"
+output_func_path = "RecompiledFuncs"
+ 
+manual_funcs = [
+    { name = "func_8004C65C", section = ".main", vram = 0x8004C65C, size = 0x124 },
+    { name = "func_800C0EDC", section = ".main", vram = 0x800C0EDC, size = 0x614 },
+    { name = "func_800BFABC", section = ".main", vram = 0x800BFABC, size = 0x548 },
+]
+[patches]
+stubs = ["func_800C4564"]
+ignored = []
+
