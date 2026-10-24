@@ -224,6 +224,11 @@ L_800CFF7C:
 RECOMP_FUNC void display_logos(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+    if (duke64_consume_startup_skip() != 0) {
+        ctx->r1 = S32(0X800D << 16);
+        MEM_B(0X36C8, ctx->r1) = 1;
+        return;
+    }
     // 0x80055680: addiu       $sp, $sp, -0x150
     ctx->r29 = ADD32(ctx->r29, -0X150);
     // 0x80055684: sw          $ra, 0x2C($sp)

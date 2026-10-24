@@ -16717,6 +16717,26 @@ L_80073D6C:
 L_80073D94:
     // 0x80073D94: sltiu       $at, $v0, 0x1F
     ctx->r1 = ctx->r2 < 0X1F ? 1 : 0;
+    if (ctx->r2 == 4) {
+        MEM_W(0XB0, ctx->r29) = ctx->r8;
+        MEM_W(0XB4, ctx->r29) = ctx->r9;
+        MEM_W(0XB8, ctx->r29) = ctx->r12;
+        MEM_W(0XBC, ctx->r29) = ctx->r15;
+        ctx->r14 = S32(MEM_H(ctx->r16, 0X28A));
+        ctx->r14 = S32(SIGNED(ctx->r14) >> 1);
+        ctx->r4 = ADD32(SUB32(ctx->r9, ctx->r14), 0X104);
+        ctx->r5 = ADD32(SUB32(ctx->r12, ctx->r8), 0XCD);
+        ctx->r6 = ADD32(0, 0XF4F);
+        ctx->r7 = 0X3F800000;
+        MEM_W(0X10, ctx->r29) = 0X3F800000;
+        MEM_W(0X14, ctx->r29) = 0;
+        MEM_W(0X18, ctx->r29) = 12;
+        displayflash(rdram, ctx);
+        ctx->r8 = S32(MEM_W(ctx->r29, 0XB0));
+        ctx->r9 = S32(MEM_W(ctx->r29, 0XB4));
+        ctx->r12 = S32(MEM_W(ctx->r29, 0XB8));
+        ctx->r15 = S32(MEM_W(ctx->r29, 0XBC));
+    }
 L_80073D98:
     // 0x80073D98: beq         $at, $zero, L_80074C0C
     if (ctx->r1 == 0) {

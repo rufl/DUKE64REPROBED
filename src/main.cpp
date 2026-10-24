@@ -2,15 +2,17 @@
 #define __PRFCHWINTRIN_H
 #include <SDL.h>
 #include <SDL_syswm.h>
+#include <atomic>
 #include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <cmath>
+#include <mutex>
 #include <string>
 #include <windows.h>
-
+#include <shellapi.h>
 #include "librecomp/game.hpp"
 #include "librecomp/rsp.hpp"
 #include "ultramodern/ultramodern.hpp"
@@ -24,6 +26,7 @@
 #include "librecomp/overlays.hpp"
 #include "funcs.h"
 #include "recomp_overlays.inl"
+#include "GamepadMotion.hpp"
 #include "ultramodern/threads.hpp"
 
 std::unique_ptr<ultramodern::renderer::RendererContext> create_render_context(uint8_t*, ultramodern::renderer::WindowHandle, bool);
@@ -42,7 +45,26 @@ static RspUcodeFunc* get_rsp_microcode(const OSTask* task) {
 
 
 static SDL_Window* window;
+std::atomic<bool> render_diagnostics_visible{false};
 static std::array<SDL_GameController*, 3> controllers{};
+struct ControllerMotionState {
+    SDL_JoystickID instance_id = -1;
+    std::array<float, 3> accelerometer{};
+    Uint64 previous_gyro_timestamp = 0;
+    GamepadMotion motion;
+
+    ControllerMotionState() {
+        motion.Reset();
+        motion.SetCalibrationMode(
+            GamepadMotionHelpers::CalibrationMode::Stillness |
+            GamepadMotionHelpers::CalibrationMode::SensorFusion
+        );
+    }
+};
+static std::array<ControllerMotionState, 3> controller_motion{};
+static std::mutex controller_motion_mutex;
+static std::array<std::array<float, 2>, 3> pending_gyro_deltas{};
+static std::array<std::array<float, 2>, 3> current_gyro_deltas{};
 static SDL_AudioDeviceID audio_device;
 static SDL_AudioStream* audio_stream;
 static constexpr Uint8 audio_channels = 2;
@@ -164,8 +186,24 @@ struct KeyboardBindings {
     SDL_Scancode inventory_previous = SDL_SCANCODE_LEFTBRACKET;
     SDL_Scancode inventory_next = SDL_SCANCODE_RIGHTBRACKET;
 } keyboard_bindings;
+static std::atomic_bool startup_skip_pending{false};
+static std::atomic_bool run_toggle{false};
+static std::atomic_bool gameplay_active{false};
+
+extern "C" void duke64_set_gameplay_active(int state) {
+    gameplay_active.store(state == 2, std::memory_order_relaxed);
+}
+
+extern "C" int duke64_consume_startup_skip() {
+    if (!startup_skip_pending.exchange(false, std::memory_order_acq_rel)) {
+        return 0;
+    }
+    std::fprintf(stderr, "Startup screens skipped\n");
+    return 1;
+}
 static float controller_deadzone = 0.24f;
 static float controller_sensitivity = 1.0f;
+static float gyro_sensitivity = 0.0f;
 static bool invert_aim_x = false;
 static bool invert_aim_y = false;
 static std::filesystem::path screenshot_path;
@@ -201,6 +239,7 @@ static void load_input_config(const std::filesystem::path& data_path) {
                 {"window_height", window_height},
                 {"controller_deadzone", controller_deadzone},
                 {"controller_sensitivity", controller_sensitivity},
+                {"gyro_sensitivity", gyro_sensitivity},
                 {"invert_aim_x", invert_aim_x},
                 {"invert_aim_y", invert_aim_y},
                 {"keyboard", {
@@ -229,6 +268,7 @@ static void load_input_config(const std::filesystem::path& data_path) {
         window_height = std::clamp(config.value("window_height", window_height), 360, 4320);
         controller_deadzone = std::clamp(config.value("controller_deadzone", controller_deadzone), 0.0f, 0.9f);
         controller_sensitivity = std::clamp(config.value("controller_sensitivity", controller_sensitivity), 0.1f, 4.0f);
+        gyro_sensitivity = std::clamp(config.value("gyro_sensitivity", gyro_sensitivity), 0.0f, 4.0f);
         invert_aim_x = config.value("invert_aim_x", invert_aim_x);
         invert_aim_y = config.value("invert_aim_y", invert_aim_y);
         const nlohmann::json keyboard = config.value("keyboard", nlohmann::json::object());
@@ -361,10 +401,99 @@ static void save_screenshot() {
         return;
     }
 }
+static void close_controller(int controller_slot);
+
+static void initialize_controller_motion(int controller_slot) {
+    SDL_GameController* game_controller = controllers[controller_slot];
+    if (game_controller == nullptr) return;
+
+    const SDL_JoystickID instance_id =
+        SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(game_controller));
+    {
+        std::lock_guard lock(controller_motion_mutex);
+        ControllerMotionState& state = controller_motion[controller_slot];
+        state.instance_id = instance_id;
+        state.accelerometer = {};
+        state.previous_gyro_timestamp = 0;
+        state.motion.Reset();
+        state.motion.SetCalibrationMode(
+            GamepadMotionHelpers::CalibrationMode::Stillness |
+            GamepadMotionHelpers::CalibrationMode::SensorFusion
+        );
+        pending_gyro_deltas[controller_slot] = {};
+        current_gyro_deltas[controller_slot] = {};
+    }
+
+    if (gyro_sensitivity <= 0.0f) return;
+    if (SDL_GameControllerHasSensor(game_controller, SDL_SENSOR_GYRO)) {
+        SDL_GameControllerSetSensorEnabled(game_controller, SDL_SENSOR_GYRO, SDL_TRUE);
+    }
+    if (SDL_GameControllerHasSensor(game_controller, SDL_SENSOR_ACCEL)) {
+        SDL_GameControllerSetSensorEnabled(game_controller, SDL_SENSOR_ACCEL, SDL_TRUE);
+    }
+}
+
+static void process_controller_sensor(const SDL_ControllerSensorEvent& event) {
+    if (gyro_sensitivity <= 0.0f) return;
+
+    std::lock_guard lock(controller_motion_mutex);
+    int slot = -1;
+    for (int candidate = 0; candidate < static_cast<int>(controller_motion.size()); ++candidate) {
+        if (controller_motion[candidate].instance_id == event.which) {
+            slot = candidate;
+            break;
+        }
+    }
+    if (slot < 0) return;
+
+    ControllerMotionState& state = controller_motion[slot];
+    if (event.sensor == SDL_SENSOR_ACCEL) {
+        state.accelerometer = { event.data[0] / SDL_STANDARD_GRAVITY,
+                                event.data[1] / SDL_STANDARD_GRAVITY,
+                                event.data[2] / SDL_STANDARD_GRAVITY };
+        return;
+    }
+    if (event.sensor != SDL_SENSOR_GYRO) return;
+
+    const Uint64 timestamp = event.timestamp;
+    const float delta_time = state.previous_gyro_timestamp == 0
+        ? 0.0f
+        : std::clamp(
+            static_cast<float>(timestamp - state.previous_gyro_timestamp) * 0.001f,
+            0.0f,
+            0.1f
+        );
+    state.previous_gyro_timestamp = timestamp;
+    if (delta_time <= 0.0f) return;
+
+    constexpr float radians_to_degrees = 57.29577951308232f;
+    state.motion.ProcessMotion(
+        event.data[0] * radians_to_degrees,
+        event.data[1] * radians_to_degrees,
+        event.data[2] * radians_to_degrees,
+        state.accelerometer[0],
+        state.accelerometer[1],
+        state.accelerometer[2],
+        delta_time
+    );
+
+    float pitch = 0.0f;
+    float yaw = 0.0f;
+    state.motion.GetPlayerSpaceGyro(pitch, yaw);
+    pending_gyro_deltas[slot][0] += pitch * delta_time;
+    pending_gyro_deltas[slot][1] += yaw * delta_time;
+}
+
 
 static void update_gfx(void*) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
+            startup_skip_pending.store(true, std::memory_order_release);
+        }
+        else if (event.type == SDL_CONTROLLERBUTTONDOWN) {
+            startup_skip_pending.store(true, std::memory_order_release);
+        }
         if (event.type == SDL_QUIT) {
             ultramodern::quit();
         }
@@ -372,10 +501,25 @@ static void update_gfx(void*) {
                  event.key.repeat == 0) {
             save_screenshot();
         }
+        else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F3 &&
+                 event.key.repeat == 0) {
+            const bool enabled = !render_diagnostics_visible.load(std::memory_order_relaxed);
+            render_diagnostics_visible.store(enabled, std::memory_order_relaxed);
+            std::fprintf(stderr, "Rendering diagnostics: %s\n", enabled ? "on" : "off");
+        }
         else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_RETURN &&
                  (event.key.keysym.mod & KMOD_ALT) != 0 && event.key.repeat == 0) {
             const bool fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
             SDL_SetWindowFullscreen(window, fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+        }
+        else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_CAPSLOCK &&
+                 event.key.repeat == 0) {
+            const bool enabled = !run_toggle.load(std::memory_order_relaxed);
+            run_toggle.store(enabled, std::memory_order_relaxed);
+            std::fprintf(stderr, "Run mode: %s\n", enabled ? "on" : "off");
+        }
+        else if (event.type == SDL_CONTROLLERSENSORUPDATE) {
+            process_controller_sensor(event.csensor);
         }
         else if (event.type == SDL_WINDOWEVENT &&
                  event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
@@ -388,11 +532,11 @@ static void update_gfx(void*) {
             SDL_SetRelativeMouseMode(SDL_TRUE);
         }
         else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
-            for (SDL_GameController*& game_controller : controllers) {
+            for (int slot = 0; slot < static_cast<int>(controllers.size()); ++slot) {
+                SDL_GameController* game_controller = controllers[slot];
                 if (game_controller != nullptr &&
                     SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(game_controller)) == event.cdevice.which) {
-                    SDL_GameControllerClose(game_controller);
-                    game_controller = nullptr;
+                    close_controller(slot);
                     break;
                 }
             }
@@ -402,12 +546,31 @@ static void update_gfx(void*) {
 static void close_controller(int controller_slot) {
     SDL_GameController*& game_controller = controllers[controller_slot];
     if (game_controller != nullptr) {
+        SDL_GameControllerSetSensorEnabled(game_controller, SDL_SENSOR_GYRO, SDL_FALSE);
+        SDL_GameControllerSetSensorEnabled(game_controller, SDL_SENSOR_ACCEL, SDL_FALSE);
         SDL_GameControllerClose(game_controller);
         game_controller = nullptr;
     }
+    std::lock_guard lock(controller_motion_mutex);
+    ControllerMotionState& state = controller_motion[controller_slot];
+    state.instance_id = -1;
+    state.accelerometer = {};
+    state.previous_gyro_timestamp = 0;
+    state.motion.Reset();
+    state.motion.SetCalibrationMode(
+        GamepadMotionHelpers::CalibrationMode::Stillness |
+        GamepadMotionHelpers::CalibrationMode::SensorFusion
+    );
+    pending_gyro_deltas[controller_slot] = {};
+    current_gyro_deltas[controller_slot] = {};
 }
 static void poll_input() {
     SDL_GameControllerUpdate();
+    {
+        std::lock_guard lock(controller_motion_mutex);
+        current_gyro_deltas = pending_gyro_deltas;
+        pending_gyro_deltas = {};
+    }
     for (int slot = 0; slot < static_cast<int>(controllers.size()); ++slot) {
         if (controllers[slot] != nullptr && !SDL_GameControllerGetAttached(controllers[slot])) {
             close_controller(slot);
@@ -428,7 +591,9 @@ static void poll_input() {
         for (int slot = 0; slot < static_cast<int>(controllers.size()); ++slot) {
             if (controllers[slot] == nullptr) {
                 controllers[slot] = SDL_GameControllerOpen(device_index);
-                break;
+                if (controllers[slot] != nullptr) {
+                    initialize_controller_motion(slot);
+                }
             }
         }
     }
@@ -475,10 +640,21 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
             SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_LEFTX), false);
         const float left_y = normalize_stick_axis(
             SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_LEFTY), false);
-        const float right_x = normalize_stick_axis(
+        float right_x = normalize_stick_axis(
             SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTX), invert_aim_x);
-        const float right_y = normalize_stick_axis(
+        float right_y = normalize_stick_axis(
             SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTY), invert_aim_y);
+        if (gameplay_active.load(std::memory_order_relaxed) && gyro_sensitivity > 0.0f) {
+            std::array<float, 2> gyro{};
+            {
+                std::lock_guard lock(controller_motion_mutex);
+                gyro = current_gyro_deltas[physical_slot];
+            }
+            const float gyro_x = invert_aim_x ? -gyro[1] : gyro[1];
+            const float gyro_y = invert_aim_y ? -gyro[0] : gyro[0];
+            right_x = std::clamp(right_x + gyro_x * gyro_sensitivity, -1.0f, 1.0f);
+            right_y = std::clamp(right_y + gyro_y * gyro_sensitivity, -1.0f, 1.0f);
+        }
         if (pressed(SDL_CONTROLLER_BUTTON_A)) state |= N64_C_UP;       // Jump.
         if (pressed(SDL_CONTROLLER_BUTTON_B)) state |= N64_C_DOWN;     // Crouch.
         if (pressed(SDL_CONTROLLER_BUTTON_X) ||
@@ -507,18 +683,29 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
         state |= N64_Z;                                               // PC fire.
     if (pressed(keyboard_bindings.jump)) state |= N64_C_UP;            // PC jump.
     if (pressed(keyboard_bindings.crouch)) state |= N64_C_DOWN;        // PC crouch.
-    if (pressed(keyboard_bindings.start) || pressed(SDL_SCANCODE_ESCAPE)) state |= N64_START;
+    if (pressed(keyboard_bindings.start)) state |= N64_START;
+    if (pressed(SDL_SCANCODE_RETURN)) state |= N64_A;                  // Enter selects menu items.
+    if (pressed(SDL_SCANCODE_ESCAPE)) state |= N64_B;                 // Escape backs out of menus.
     if (pressed(SDL_SCANCODE_UP) || mouse_look < -2) state |= N64_DPAD_UP;
     if (pressed(SDL_SCANCODE_DOWN) || mouse_look > 2) state |= N64_DPAD_DOWN;
-    if (pressed(keyboard_bindings.strafe_left)) state |= N64_DPAD_LEFT;  // PC strafe left.
-    if (pressed(keyboard_bindings.strafe_right)) state |= N64_DPAD_RIGHT; // PC strafe right.
+    if (pressed(SDL_SCANCODE_LEFT) || pressed(keyboard_bindings.strafe_left))
+        state |= N64_DPAD_LEFT;                                       // Arrow/A strafe left.
+    if (pressed(SDL_SCANCODE_RIGHT) || pressed(keyboard_bindings.strafe_right))
+        state |= N64_DPAD_RIGHT;                                      // Arrow/D strafe right.
     if (pressed(keyboard_bindings.inventory_previous)) state |= N64_C_LEFT;
     if (pressed(keyboard_bindings.inventory_next)) state |= N64_C_RIGHT;
     if (pressed(keyboard_bindings.open)) state |= N64_R;                // Open/use.
     if (pressed(keyboard_bindings.previous_weapon) || pressed(SDL_SCANCODE_PAGEUP)) state |= N64_B;
     if (pressed(keyboard_bindings.next_weapon) || pressed(SDL_SCANCODE_PAGEDOWN)) state |= N64_A;
     *x = std::clamp(static_cast<float>(mouse_turn) * 0.75f * mouse_sensitivity, -80.0f, 80.0f);
-    *y = static_cast<float>(pressed(keyboard_bindings.move_backward) - pressed(keyboard_bindings.move_forward));
+    const bool move_backward = pressed(keyboard_bindings.move_backward);
+    const bool move_forward = pressed(keyboard_bindings.move_forward);
+    const bool run_held = pressed(SDL_SCANCODE_LSHIFT) || pressed(SDL_SCANCODE_RSHIFT);
+    const bool run_active = run_held ||
+        (run_toggle.load(std::memory_order_relaxed) &&
+         gameplay_active.load(std::memory_order_relaxed));
+    const float move_scale = run_active ? 1.0f : 0.5f;
+    *y = (static_cast<float>(move_backward) - static_cast<float>(move_forward)) * move_scale;
     return true;
 }
 static void set_rumble(int controller_num, bool enabled) {
@@ -532,8 +719,9 @@ static void set_rumble(int controller_num, bool enabled) {
 }
 static ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
     if (controller_num == 0) {
-        // The keyboard and mouse form the always-available first local player.
-        return { ultramodern::input::Device::Controller, ultramodern::input::Pak::None };
+        // Keep the virtual Controller Pak on the keyboard player so the
+        // single-player save menus work without a physical gamepad.
+        return { ultramodern::input::Device::Controller, ultramodern::input::Pak::ControllerPak };
     }
     const size_t physical_slot = static_cast<size_t>(controller_num - 1);
     if (physical_slot < controllers.size() && controllers[physical_slot] != nullptr &&
@@ -547,6 +735,48 @@ static void vi_callback() {}
 static void gfx_init_callback() {}
 static void message_box(const char* msg) { std::fprintf(stderr, "%s\n", msg); }
 static std::string thread_name(const OSThread*) { return "duke64"; }
+
+enum class RomArgumentState {
+    none,
+    found,
+    invalid,
+};
+
+static RomArgumentState get_rom_argument(int argc, char** argv, std::filesystem::path& rom_path) {
+    int wide_argc = 0;
+    LPWSTR* wide_argv = CommandLineToArgvW(GetCommandLineW(), &wide_argc);
+    if (wide_argv != nullptr) {
+        RomArgumentState state = RomArgumentState::none;
+        for (int i = 1; i < wide_argc; ++i) {
+            if (std::wstring(wide_argv[i]) != L"--rom") {
+                continue;
+            }
+            if (i + 1 >= wide_argc) {
+                std::fprintf(stderr, "--rom requires a ROM file path\n");
+                state = RomArgumentState::invalid;
+                break;
+            }
+            rom_path = std::filesystem::path(wide_argv[++i]);
+            state = RomArgumentState::found;
+            break;
+        }
+        LocalFree(wide_argv);
+        return state;
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) != "--rom") {
+            continue;
+        }
+        if (i + 1 >= argc) {
+            std::fprintf(stderr, "--rom requires a ROM file path\n");
+            return RomArgumentState::invalid;
+        }
+        rom_path = std::filesystem::path(argv[++i]);
+        return RomArgumentState::found;
+    }
+    return RomArgumentState::none;
+}
 
 int main(int argc, char** argv) {
     const auto data_path = get_user_data_path(argv[0]);
@@ -562,8 +792,41 @@ int main(int argc, char** argv) {
     load_input_config(data_path);
 
     recomp::rsp::callbacks_t rsp_callbacks{ .get_rsp_microcode = get_rsp_microcode };
+    std::filesystem::path selected_rom_path;
+    const RomArgumentState rom_argument = get_rom_argument(argc, argv, selected_rom_path);
+    if (rom_argument == RomArgumentState::invalid) {
+        return EXIT_FAILURE;
+    }
+
     const std::filesystem::path stored_rom_path = data_path / "dukenukem.z64";
-    if (!std::filesystem::exists(stored_rom_path)) {
+    if (rom_argument == RomArgumentState::found) {
+        std::error_code rom_error;
+        if (!std::filesystem::is_regular_file(selected_rom_path, rom_error)) {
+            std::fprintf(stderr, "Selected ROM is not a regular file %s: %s\n",
+                         selected_rom_path.string().c_str(), rom_error.message().c_str());
+            return EXIT_FAILURE;
+        }
+
+        std::error_code same_file_error;
+        const bool same_file =
+            std::filesystem::exists(stored_rom_path, same_file_error) &&
+            !same_file_error &&
+            std::filesystem::equivalent(selected_rom_path, stored_rom_path, same_file_error);
+        if (!same_file) {
+            std::error_code copy_error;
+            std::filesystem::copy_file(
+                selected_rom_path,
+                stored_rom_path,
+                std::filesystem::copy_options::overwrite_existing,
+                copy_error
+            );
+            if (copy_error) {
+                std::fprintf(stderr, "Failed to cache selected ROM %s: %s\n",
+                             selected_rom_path.string().c_str(), copy_error.message().c_str());
+                return EXIT_FAILURE;
+            }
+        }
+    } else if (!std::filesystem::exists(stored_rom_path)) {
         const auto exe_dir = std::filesystem::absolute(argv[0]).parent_path();
         for (const auto& rom_dir : {
             std::filesystem::current_path(),
@@ -604,10 +867,18 @@ int main(int argc, char** argv) {
         { section_table, 2, num_sections },
         { overlay_sections_by_index, sizeof(overlay_sections_by_index) / sizeof(overlay_sections_by_index[0]) }
     );
-    std::vector<char*> runtime_argv(argv, argv + argc);
+    std::vector<char*> runtime_argv;
+    runtime_argv.reserve(static_cast<size_t>(argc) + 2);
+    runtime_argv.push_back(argv[0]);
     bool has_game_argument = false;
     for (int i = 1; i < argc; ++i) {
-        has_game_argument |= std::string(argv[i]) == "--game";
+        const std::string argument = argv[i];
+        if (argument == "--rom") {
+            ++i;
+            continue;
+        }
+        runtime_argv.push_back(argv[i]);
+        has_game_argument |= argument == "--game";
     }
     if (!has_game_argument) {
         runtime_argv.push_back(const_cast<char*>("--game"));

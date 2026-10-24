@@ -1,0 +1,20 @@
+# Local build outputs
+/build/
+/build-pc/
+/build-pc-rt64/
+/build-pc-rt64-debug/
+/build-pc-rt64-release/
+
+# ROMs and local runtime data
+*.z64
+*.n64
+*.v64
+*.mempak
+mods.json
+mods.json.bak
+mod_config/
+saves/
+
+# Generated release archives and local artifacts
+*.zip
+/32

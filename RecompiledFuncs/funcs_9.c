@@ -964,6 +964,11 @@ RECOMP_FUNC void divscale3(uint8_t* rdram, recomp_context* ctx) {
 RECOMP_FUNC void display_intro(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+    if (duke64_consume_startup_skip() != 0) {
+        ctx->r1 = S32(0X800D << 16);
+        MEM_B(0X36C8, ctx->r1) = 1;
+        return;
+    }
     // 0x8004FC64: lui         $t0, 0x801C
     ctx->r8 = S32(0X801C << 16);
     // 0x8004FC68: addiu       $t0, $t0, 0x4418

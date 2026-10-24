@@ -40837,6 +40837,7 @@ RECOMP_FUNC void display(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = ADD32(ctx->r2, 0X36C8);
     // 0x8004B898: lb          $t6, 0x0($v0)
     ctx->r14 = S32(MEM_B(ctx->r2, 0X0));
+    duke64_set_gameplay_active(SIGNED(ctx->r14));
     // 0x8004B89C: addiu       $sp, $sp, -0x18
     ctx->r29 = ADD32(ctx->r29, -0X18);
     // 0x8004B8A0: sw          $ra, 0x14($sp)

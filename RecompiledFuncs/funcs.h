@@ -448,6 +448,8 @@ void func_80064A54(uint8_t* rdram, recomp_context* ctx);
 void timerupdate(uint8_t* rdram, recomp_context* ctx);
 void alCopy(uint8_t* rdram, recomp_context* ctx);
 void display_logos(uint8_t* rdram, recomp_context* ctx);
+int duke64_consume_startup_skip(void);
+void duke64_set_gameplay_active(int state);
 void initengine(uint8_t* rdram, recomp_context* ctx);
 void getangle(uint8_t* rdram, recomp_context* ctx);
 void _freePVoice(uint8_t* rdram, recomp_context* ctx);

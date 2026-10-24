@@ -12,6 +12,7 @@ The patch set addresses audio command processing that could become stale or inco
 4. The SDL host audio queue and `osAiGetLength` accounting.
 
 The important invariant is that each audio task executes the command list produced for that task, ASP reads that list using its normal bounded DMA behavior, and the scheduler observes completion after its current-task state has been recorded.
+The N64 AI hardware behavior used for the DMA-length rule was cross-checked against [ares's Nintendo 64 AI implementation](https://github.com/ares-emulator/ares/blob/master/ares/n64/ai/io.cpp); no ares runtime code is linked into this project.
 
 ## Patch inventory
 
@@ -177,12 +178,13 @@ The helper deliberately does not call `osSendMesg` directly. It uses the externa
 
 `N64ModernRuntime/ultramodern/src/audio.cpp`:
 
-- Requires an even byte count because samples are 16-bit.
+- Normalizes cached-segment addresses to physical RDRAM offsets before copying AI samples; `osAiSetNextBuffer` receives the physical address returned by `osVirtualToPhysical`.
 - Reads each sample through the N64 halfword address mapping (`address ^ 2`) into a reusable host-native buffer; passing the raw RDRAM pointer would reverse each interleaved stereo pair.
 - Forwards the converted samples to the registered host callback.
 - Uses `audio_callbacks.get_frames_remaining()` as the queue source. The callback reports frames at the current game sample rate even when the host device runs at another rate.
 - Converts stereo frames back to bytes using `frames * 2 * sizeof(int16_t)`.
 - Subtracts `0.5 * sizeof(int16_t) * (sample_rate / 60)` bytes, clamped at zero, so the game requests the next buffer before the device queue reaches empty.
+- Masks each AI DMA byte count to complete eight-byte units before sample conversion, matching the N64 AI length register behavior.
 
 The offset is deliberately small. Reporting too much remaining audio delays production; reporting too little can add lag or increase queue pressure.
 
@@ -205,7 +207,11 @@ The Duke runtime also sets `config.message_queue_control.requeue_vi = true`, pre
 
 Audio RSP tasks execute synchronously so the generated scheduler sees completion in order. In a Debug build, CMake normally compiles generated C and the ASP translation unit at `-O0`; the audio task can then exceed the 16.67 ms VI interval and drain the host queue. `Duke64-RE/CMakeLists.txt` adds `-O2` for those generated/runtime target sources in Debug builds while retaining debug symbols. This keeps the synchronous task within the cadence without changing the generated semantics.
 
-## 9. Generated-source cleanup
+## 9. Keep Windows VI deadlines precise
+
+`N64ModernRuntime/ultramodern/src/timer.cpp` requests a 1 ms Windows timer resolution before starting the VI thread. The VI scheduler already uses absolute deadlines derived from program start; the higher timer resolution prevents the default coarse `Sleep` quantum from turning those deadlines into avoidable late VIs. This improves audio production and presented-frame cadence without unlocking the emulated 60 Hz NTSC simulation.
+
+## 10. Generated-source cleanup
 
 Temporary diagnostic instrumentation was removed after the scheduler ordering and queue behavior were confirmed:
 
@@ -227,6 +233,8 @@ ninja -C Duke64-RE/build-pc-rt64-debug Duke64Recompiled
 ```
 
 The build completed successfully. The linker emitted the existing warning that both `wmain` and `main` were found and that it used `main`.
+The updated debug and release targets both rebuilt `ultramodern/src/audio.cpp` and `ultramodern/src/timer.cpp` successfully. The same existing linker warning was the only reported warning.
+
 
 ### Executable smoke runs
 
@@ -236,7 +244,8 @@ $env:SDL_AUDIODRIVER = "dummy"
 timeout 5s Duke64-RE/build-pc-rt64-debug/Duke64Recompiled.exe
 ```
 
-Both runs stayed alive for the full interval without audio conversion, queue, or runtime errors. Exit code `124` is expected from the timeout wrapper.
+Both runs stayed alive for the full interval without audio conversion, queue, or runtime errors. Exit code `124` is expected from the timeout wrapper. The rebuilt executable was also launched for eight seconds through `cmd.exe` with `SDL_AUDIODRIVER=dummy`; it remained alive until the timeout (`124`) without diagnostic output.
+After these changes, a ROM-backed Release executable launched with `SDL_AUDIODRIVER=dummy`, initialized the Intel Arc renderer and recomp heap, and remained alive for the supervised smoke interval without audio conversion, queue, or scheduler diagnostics. The harness then stopped it.
 
 ### Verification scope
 

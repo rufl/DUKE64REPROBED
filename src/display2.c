@@ -591,6 +591,14 @@ void displayweapon(short snum)
                         SHOTGUN+6,gs,o,pal);
                     break;
             }
+            if (*kb == 4)
+            {
+                float siz = 1.0;
+                displayflash(weapon_xoffset+260-(p->look_ang>>1),
+                            looking_arc+205-gun_pos,
+                            0xF4F, siz, siz, 0, 12);
+            }
+
             break;
 
 

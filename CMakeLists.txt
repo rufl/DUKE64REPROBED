@@ -38,6 +38,12 @@ FetchContent_Declare(
     URL https://github.com/libsdl-org/SDL/releases/download/release-2.30.3/SDL2-devel-2.30.3-VC.zip
 )
 FetchContent_MakeAvailable(sdl2)
+FetchContent_Declare(
+    gamepad_motion_helpers
+    GIT_REPOSITORY https://github.com/JibbSmart/GamepadMotionHelpers.git
+    GIT_TAG f1a76007ec058122a4bb6f19c816c6c0c7b7f12a
+)
+FetchContent_MakeAvailable(gamepad_motion_helpers)
 
 add_executable(Duke64Recompiled
     src/main.cpp
@@ -62,7 +68,7 @@ target_compile_options(Duke64Recompiled PRIVATE
     $<$<CONFIG:Debug>:-O2>
 )
 target_link_directories(Duke64Recompiled PRIVATE ${sdl2_SOURCE_DIR}/lib/x64)
-target_link_libraries(Duke64Recompiled PRIVATE Duke64RecompiledFuncs rt64 librecomp ultramodern SDL2 Winmm.lib)
+target_link_libraries(Duke64Recompiled PRIVATE Duke64RecompiledFuncs rt64 librecomp ultramodern SDL2 GamepadMotionHelpers Winmm.lib Shell32.lib)
 add_custom_command(TARGET Duke64Recompiled POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${sdl2_SOURCE_DIR}/lib/x64/SDL2.dll"
@@ -70,3 +76,10 @@ add_custom_command(TARGET Duke64Recompiled POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxcompiler.dll"
         $<TARGET_FILE_DIR:Duke64Recompiled>
 )
+
+add_executable(Duke64Launcher WIN32
+    src/launcher_main.cpp
+    duke64.rc
+)
+target_compile_definitions(Duke64Launcher PRIVATE UNICODE _UNICODE)
+target_link_libraries(Duke64Launcher PRIVATE Comdlg32.lib Shell32.lib)
