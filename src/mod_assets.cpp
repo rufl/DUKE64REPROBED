@@ -375,6 +375,13 @@ bool parse_voxel_manifest(const recomp::mods::ModHandle& mod, const json& manife
 }
 
 std::optional<std::string> get_texture_base(const recomp::mods::ModHandle& mod, const json* asset_manifest) {
+    auto texture_manifest_is_nonempty = [&](const std::string& path) {
+        const auto manifest = read_json_asset(mod, path);
+        return manifest && manifest->is_object() &&
+            manifest->contains("textures") && (*manifest)["textures"].is_array() &&
+            !(*manifest)["textures"].empty();
+    };
+
     if (asset_manifest != nullptr && asset_manifest->contains("textures")) {
         const auto configured = safe_asset_path(asset_manifest->at("textures"));
         if (!configured) {
@@ -384,22 +391,26 @@ std::optional<std::string> get_texture_base(const recomp::mods::ModHandle& mod, 
             configured->compare(configured->size() - texture_manifest_name.size(), texture_manifest_name.size(), texture_manifest_name) == 0) {
             const std::filesystem::path file_path(*configured);
             const std::string parent = file_path.parent_path().generic_string();
-            if (mod.manifest.file_handle->file_exists(*configured)) {
+            if (mod.manifest.file_handle->file_exists(*configured) &&
+                texture_manifest_is_nonempty(*configured)) {
                 return parent;
             }
             return std::nullopt;
         }
         const std::string marker = append_asset_path(*configured, texture_manifest_name);
-        if (mod.manifest.file_handle->file_exists(marker)) {
+        if (mod.manifest.file_handle->file_exists(marker) &&
+            texture_manifest_is_nonempty(marker)) {
             return *configured;
         }
         return std::nullopt;
     }
 
-    if (mod.manifest.file_handle->file_exists("rt64.json")) {
+    if (mod.manifest.file_handle->file_exists("rt64.json") &&
+        texture_manifest_is_nonempty("rt64.json")) {
         return std::string{};
     }
-    if (mod.manifest.file_handle->file_exists("assets/textures/rt64.json")) {
+    if (mod.manifest.file_handle->file_exists("assets/textures/rt64.json") &&
+        texture_manifest_is_nonempty("assets/textures/rt64.json")) {
         return std::string("assets/textures");
     }
     return std::nullopt;

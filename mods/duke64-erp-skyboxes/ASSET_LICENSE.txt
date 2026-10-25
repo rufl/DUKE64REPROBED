@@ -20,9 +20,13 @@ property remains with its respective rights holders; use this asset only with
 a legally acquired game.
 
 The source tile0080.png was converted to an uncompressed 32-bit BGRA DDS for
-RT64 with no visual resampling or mipmap generation. The replacement is kept
-in the bundle for future per-draw sky matching, but is not enabled by the
-current runtime because its shared hash also matches scenery draws.
+RT64 with no visual resampling or mipmap generation. The original N64 sky
+tiles are CI4 data with a 16-entry RGBA16 palette embedded in each tile; the
+replacement is a quantized full-color texture and does not preserve that
+palette. The RT64 manifest is intentionally empty, so the runtime keeps the
+game's native per-level sky selection instead of applying a hash-only
+replacement to scenery draws. Per-tile enhanced replacements require the
+remaining source sky tiles and a draw-scoped RT64 match.
 
 Music source
 ------------
