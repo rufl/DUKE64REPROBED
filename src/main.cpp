@@ -1566,10 +1566,17 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
     }
     *x = mouse_stick_x / mouse_stick_range;
     *y = mouse_stick_y / mouse_stick_range;
-    const bool move_backward = pressed(bindings.move_backward);
-    const bool move_forward = pressed(bindings.move_forward);
-    const bool strafe_left = pressed(bindings.strafe_left);
-    const bool strafe_right = pressed(bindings.strafe_right);
+    // Keep the requested WASD movement defaults active even when an older
+    // duke64.json contains stale movement bindings; custom bindings remain
+    // active alongside these built-in PC movement keys.
+    const bool move_backward =
+        pressed(bindings.move_backward) || pressed(SDL_SCANCODE_S);
+    const bool move_forward =
+        pressed(bindings.move_forward) || pressed(SDL_SCANCODE_W);
+    const bool strafe_left =
+        pressed(bindings.strafe_left) || pressed(SDL_SCANCODE_A);
+    const bool strafe_right =
+        pressed(bindings.strafe_right) || pressed(SDL_SCANCODE_D);
     const bool run_held = pressed(SDL_SCANCODE_LSHIFT) || pressed(SDL_SCANCODE_RSHIFT);
     const bool run_active = run_held ||
         (run_toggle.load(std::memory_order_relaxed) &&
