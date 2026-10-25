@@ -78,6 +78,11 @@ add_custom_command(TARGET Duke64Recompiled POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxcompiler.dll"
         $<TARGET_FILE_DIR:Duke64Recompiled>
 )
+add_custom_command(TARGET Duke64Recompiled POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/mods"
+        "$<TARGET_FILE_DIR:Duke64Recompiled>/mods"
+)
 
 add_executable(Duke64Launcher WIN32
     src/launcher_main.cpp

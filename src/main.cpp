@@ -574,6 +574,46 @@ static std::filesystem::path get_user_data_path(const char* executable) {
     std::free(local_app_data);
     return std::filesystem::current_path() / "Duke64Recompiled";
 }
+static void seed_bundled_mods(const std::filesystem::path& executable_dir,
+                              const std::filesystem::path& data_path) {
+    const auto bundled_mods = executable_dir / "mods";
+    std::error_code error;
+    if (!std::filesystem::is_directory(bundled_mods, error) || error) {
+        return;
+    }
+
+    const auto installed_mods = data_path / "mods";
+    std::filesystem::create_directories(installed_mods, error);
+    if (error) {
+        std::fprintf(stderr, "Failed to create bundled mod path %s: %s\n",
+                     installed_mods.string().c_str(), error.message().c_str());
+        return;
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(
+             bundled_mods, std::filesystem::directory_options::skip_permission_denied, error)) {
+        if (error) {
+            break;
+        }
+        const auto destination = installed_mods / entry.path().filename();
+        if (std::filesystem::exists(destination, error)) {
+            error.clear();
+            continue;
+        }
+        std::filesystem::copy(
+            entry.path(),
+            destination,
+            std::filesystem::copy_options::recursive,
+            error
+        );
+        if (error) {
+            std::fprintf(stderr, "Failed to install bundled mod %s: %s\n",
+                         entry.path().string().c_str(), error.message().c_str());
+            error.clear();
+        }
+    }
+}
+
 static std::mutex input_config_mutex;
 static std::string scancode_name(SDL_Scancode scancode) {
     return std::string(SDL_GetScancodeName(scancode));
@@ -1671,6 +1711,7 @@ int main(int argc, char** argv) {
                      data_path.string().c_str(), data_path_error.message().c_str());
         return EXIT_FAILURE;
     }
+    seed_bundled_mods(std::filesystem::absolute(argv[0]).parent_path(), data_path);
     screenshot_path = data_path;
     recomp::register_config_path(data_path);
     load_input_config(data_path);
