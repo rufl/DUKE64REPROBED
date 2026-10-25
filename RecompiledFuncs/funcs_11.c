@@ -16972,6 +16972,10 @@ L_80073EC8:
     MEM_H(0X94, ctx->r29) = ctx->r8;
     // 0x80073ECC: sh          $t1, 0x92($sp)
     MEM_H(0X92, ctx->r29) = ctx->r9;
+    if (duke64_is_ripper_mode()) {
+        duke64_display_ripper(rdram, ctx);
+        goto L_80074C0C;
+    }
     // 0x80073ED0: addiu       $t2, $s0, 0x2D4
     ctx->r10 = ADD32(ctx->r16, 0X2D4);
     // 0x80073ED4: lh          $t7, 0x0($t2)

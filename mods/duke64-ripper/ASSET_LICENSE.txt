@@ -1,0 +1,23 @@
+Duke Nukem 64 HRP Ripper
+==========================
+
+Assets:
+  assets/textures/ripper/2536_chaingun.png
+  assets/textures/ripper/2545_muzzle_flash.png
+
+Source
+------
+Enhanced Resource Pack for Duke Nukem 3D (HRP), duke3d_hrp-r750.zip.
+Source page: https://hrp.duke4.net/download.php
+Archive MD5: 5106DBF4C8B03BECFAF9614E01844A2A
+
+The HRP artwork is credited to the Duke3D HRP community and its original
+contributors. The HRP art license permits copying, altering, and distributing
+artwork with attribution, prohibits commercial use, and requires derivatives
+to use the same or a similar license. Duke Nukem 3D/Duke Nukem 64 intellectual
+property remains with its respective rights holders; use this asset only with
+a legally acquired game.
+
+The weapon texture is the HRP first-person chaingun artwork. The muzzle flash
+is the HRP first-person muzzle-flash artwork. Both files are used as PNG
+replacement textures; no source pixels are resampled by the mod.

@@ -1,0 +1,9 @@
+{
+  "game_id": "dukenukem",
+  "id": "duke64-ripper",
+  "display_name": "Duke Nukem 64 HRP Ripper",
+  "version": "1.0.0",
+  "authors": ["Duke3D HRP community"],
+  "minimum_recomp_version": "0.1.0",
+  "enabled_by_default": true
+}

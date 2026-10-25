@@ -39463,6 +39463,11 @@ L_800AA4FC:
     // 0x800AA50C: lw          $ra, 0x44($sp)
     ctx->r31 = S32(MEM_W(ctx->r29, 0X44));
 L_800AA510:
+    if (duke64_is_ripper_mode()) {
+        duke64_process_ripper(rdram, ctx, MEM_H(0X7A, ctx->r29));
+        ctx->r31 = S32(MEM_W(ctx->r29, 0X44));
+        goto L_800AAE40;
+    }
     // 0x800AA510: addiu       $t1, $s0, 0x2D4
     ctx->r9 = ADD32(ctx->r16, 0X2D4);
     // 0x800AA514: lh          $t7, 0x0($t1)

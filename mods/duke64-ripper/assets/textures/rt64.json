@@ -1,0 +1,29 @@
+{
+  "configuration": {
+    "autoPath": "rt64",
+    "configurationVersion": 3,
+    "hashVersion": 5,
+    "defaultOperation": "preload",
+    "defaultShift": "half"
+  },
+  "textures": [
+    {
+      "hashes": {
+        "rt64": "432ee169f3850d6a",
+        "rice": "e9adef1e#2#1#7bfbcde0"
+      },
+      "path": "ripper/2536_chaingun.png",
+      "operation": "preload",
+      "shift": "half"
+    },
+    {
+      "hashes": {
+        "rt64": "309e239feb0f96c9",
+        "rice": "c4f8c78d#2#0#d6e55cb0"
+      },
+      "path": "ripper/2545_muzzle_flash.png",
+      "operation": "preload",
+      "shift": "none"
+    }
+  ]
+}

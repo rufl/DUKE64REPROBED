@@ -1,14 +1,30 @@
 #include "recomp.h"
 #include "funcs.h"
+void duke64_refresh_asset_packs(void);
 
 static int duke64_last_weapon_slot = 0;
 static int duke64_weapon_slot_window = 0;
+static int duke64_ripper_selected = 0;
+
+enum {
+    DUKE64_CHAINGUN_SPRITE_TILE = 2536,
+    DUKE64_RIPPER_MUZZLE_TILE = 2545,
+    DUKE64_SHOTSPARK1_PLUS_2 = 0XA03,
+    DUKE64_CHAINGUN_SOUND = 268,
+};
+static int duke64_ripper_assets_refreshed = 0;
+
+
+int duke64_is_ripper_mode(void) {
+    return duke64_ripper_selected;
+}
 
 static int duke64_weapon_for_slot(int slot) {
     const int alternate =
         slot == duke64_last_weapon_slot && duke64_weapon_slot_window > 0;
     duke64_last_weapon_slot = slot;
     duke64_weapon_slot_window = 12;
+    duke64_ripper_selected = 0;
 
     switch (slot) {
     case 1:
@@ -16,7 +32,8 @@ static int duke64_weapon_for_slot(int slot) {
     case 2:
         return alternate ? 13 : 2;  // alternate shotgun / shotgun
     case 3:
-        return 3;  // chaingun
+        duke64_ripper_selected = alternate;
+        return 3;  // dual SMGs / Ripper
     case 4:
         return alternate ? 14 : 8;  // alternate RPG / RPG
     case 5:
@@ -33,6 +50,76 @@ static int duke64_weapon_for_slot(int slot) {
         return -1;
     }
 }
+
+int duke64_process_ripper(uint8_t* rdram, recomp_context* ctx, int player_sprite) {
+    const uint32_t player = ctx->r16;
+    int kickback = SIGNED(MEM_H(0X2D4, player));
+
+    if ((ctx->r6 & 4) == 0) {
+        MEM_H(0X2D4, player) = 0;
+        return 1;
+    }
+
+    if (kickback >= 10)
+        kickback = 0;
+    ++kickback;
+    MEM_H(0X2D4, player) = kickback;
+
+    if ((kickback & 1) == 0) {
+        int ammo = SIGNED(MEM_H(0X294, player));
+        if (ammo <= 0) {
+            MEM_H(0X2D4, player) = 0;
+            ctx->r4 = player;
+            checkavailweapon(rdram, ctx);
+            return 1;
+        }
+
+        MEM_H(0X294, player) = ammo - 1;
+        ctx->r4 = DUKE64_CHAINGUN_SOUND;
+        sound(rdram, ctx);
+        ctx->r4 = player_sprite;
+        ctx->r5 = DUKE64_SHOTSPARK1_PLUS_2;
+        shoot(rdram, ctx);
+        MEM_H(0X370, player) = kickback & 3;
+        ctx->r4 = player;
+        checkavailweapon(rdram, ctx);
+    }
+
+    return 1;
+}
+
+void duke64_display_ripper(uint8_t* rdram, recomp_context* ctx) {
+    const uint32_t player = ctx->r16;
+    const int look_ang = SIGNED(MEM_H(0X28A, player));
+    const int weapon_xoffset = SIGNED(MEM_H(0X92, ctx->r29));
+    const int gun_pos = SIGNED(MEM_H(0X94, ctx->r29));
+    const int palette = SIGNED(MEM_B(0XA9, ctx->r29));
+    const int kickback = SIGNED(MEM_H(0X2D4, player));
+
+    if (!duke64_ripper_assets_refreshed) {
+        duke64_refresh_asset_packs();
+        duke64_ripper_assets_refreshed = 1;
+    }
+    ctx->r4 = weapon_xoffset + 235 - (look_ang >> 1);
+    ctx->r5 = gun_pos + 265;
+    ctx->r6 = DUKE64_CHAINGUN_SPRITE_TILE;
+    ctx->r7 = palette;
+    MEM_W(0X10, ctx->r29) = 0;
+    MEM_W(0X14, ctx->r29) = 0;
+    myospal(rdram, ctx);
+
+    if (kickback > 0) {
+        ctx->r4 = weapon_xoffset + 215 - (look_ang >> 1);
+        ctx->r5 = gun_pos + 205;
+        ctx->r6 = DUKE64_RIPPER_MUZZLE_TILE;
+        ctx->r7 = 0X3F800000;
+        MEM_W(0X10, ctx->r29) = 0X3F800000;
+        MEM_W(0X14, ctx->r29) = 0;
+        MEM_W(0X18, ctx->r29) = 12;
+        displayflash(rdram, ctx);
+    }
+}
+
 
 RECOMP_FUNC void cheatkeys(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;

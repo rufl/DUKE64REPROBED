@@ -43,10 +43,15 @@ struct VoxelEntry {
     std::string texture_path;
 };
 
+struct PendingTextureDirectory {
+    std::filesystem::path path;
+    std::string zip_base;
+};
+
 struct AssetPack {
     std::string mod_id;
     std::filesystem::path root_path;
-    std::optional<RT64::ReplacementDirectory> texture_directory;
+    std::optional<PendingTextureDirectory> texture_directory;
     std::unordered_map<int, AudioClip> sounds;
     std::unordered_map<int, AudioClip> music;
     std::vector<VoxelEntry> voxels;
@@ -57,7 +62,6 @@ std::unordered_map<std::string, AssetPack> asset_packs;
 std::vector<std::string> ordered_asset_ids;
 bool content_types_registered = false;
 recomp::mods::ModContentTypeId duke64_asset_content_type{ 0 };
-recomp::mods::ModContentTypeId rt64_texture_content_type{ 0 };
 
 std::string normalize_slashes(std::string value) {
     std::replace(value.begin(), value.end(), '\\', '/');
@@ -443,10 +447,12 @@ std::optional<AssetPack> load_asset_pack(const recomp::mods::ModHandle& mod) {
     if (texture_base) {
         const bool is_archive = std::filesystem::is_regular_file(pack.root_path);
         if (is_archive) {
-            pack.texture_directory.emplace(pack.root_path, *texture_base);
+            pack.texture_directory = PendingTextureDirectory{ pack.root_path, *texture_base };
         }
         else {
-            pack.texture_directory.emplace(pack.root_path / std::filesystem::path(*texture_base));
+            pack.texture_directory = PendingTextureDirectory{
+                pack.root_path / std::filesystem::path(*texture_base), {}
+            };
         }
     }
 
@@ -524,59 +530,36 @@ void on_asset_enabled(recomp::mods::ModContext&, const recomp::mods::ModHandle& 
         std::fprintf(stderr, "Ignoring malformed Duke64 assets in mod %s: %s\n",
                      mod.manifest.mod_id.c_str(), error.what());
     }
-    bool refresh_textures = false;
     {
         std::lock_guard lock(asset_mutex);
-        const auto previous = asset_packs.find(mod.manifest.mod_id);
-        const bool previously_had_textures =
-            previous != asset_packs.end() && previous->second.texture_directory.has_value();
         if (pack) {
             const size_t voxel_count = pack->voxels.size();
             const size_t sound_count = pack->sounds.size();
             const size_t music_count = pack->music.size();
             const bool has_textures = pack->texture_directory.has_value();
-            refresh_textures = previously_had_textures || has_textures;
             asset_packs[pack->mod_id] = std::move(*pack);
             std::fprintf(stderr, "Loaded Duke64 assets from %s: textures=%s voxels=%zu sounds=%zu music=%zu\n",
                          mod.manifest.mod_id.c_str(), has_textures ? "yes" : "no", voxel_count, sound_count, music_count);
         }
         else {
-            refresh_textures = previously_had_textures;
             asset_packs.erase(mod.manifest.mod_id);
         }
         rebuild_asset_order_locked();
     }
-    if (refresh_textures) {
-        duke64_refresh_asset_packs();
-    }
 }
 
 void on_asset_disabled(recomp::mods::ModContext&, const recomp::mods::ModHandle& mod) {
-    bool refresh_textures = false;
     {
         std::lock_guard lock(asset_mutex);
-        const auto previous = asset_packs.find(mod.manifest.mod_id);
-        refresh_textures = previous != asset_packs.end() && previous->second.texture_directory.has_value();
         asset_packs.erase(mod.manifest.mod_id);
         rebuild_asset_order_locked();
-    }
-    if (refresh_textures) {
-        duke64_refresh_asset_packs();
     }
 }
 
 void on_assets_reordered(recomp::mods::ModContext&) {
-    bool refresh_textures = false;
     {
         std::lock_guard lock(asset_mutex);
         rebuild_asset_order_locked();
-        refresh_textures = std::any_of(
-            asset_packs.begin(), asset_packs.end(),
-            [](const auto& item) { return item.second.texture_directory.has_value(); }
-        );
-    }
-    if (refresh_textures) {
-        duke64_refresh_asset_packs();
     }
 }
 
@@ -597,22 +580,13 @@ void register_mod_asset_content_types() {
         .on_disabled = on_asset_disabled,
         .on_reordered = on_assets_reordered
     });
-    rt64_texture_content_type = recomp::mods::register_mod_content_type({
-        .content_filename = std::string(texture_manifest_name),
-        .allow_runtime_toggle = false,
-        .on_enabled = on_asset_enabled,
-        .on_disabled = on_asset_disabled,
-        .on_reordered = on_assets_reordered
-    });
 
     const std::vector<recomp::mods::ModContentTypeId> asset_types{
-        duke64_asset_content_type,
-        rt64_texture_content_type
+        duke64_asset_content_type
     };
     recomp::mods::register_mod_container_type("zip", asset_types, false);
     recomp::mods::register_mod_container_type("pk3", asset_types, false);
     recomp::mods::register_mod_container_type("pk4", asset_types, false);
-    recomp::mods::register_mod_container_type("rtz", { rt64_texture_content_type }, false);
     content_types_registered = true;
 }
 
@@ -623,7 +597,8 @@ std::vector<RT64::ReplacementDirectory> get_texture_replacement_directories() {
     for (const std::string& mod_id : ordered_asset_ids) {
         const auto pack_it = asset_packs.find(mod_id);
         if (pack_it != asset_packs.end() && pack_it->second.texture_directory) {
-            result.push_back(*pack_it->second.texture_directory);
+            const auto& pending = *pack_it->second.texture_directory;
+            result.emplace_back(pending.path, pending.zip_base);
         }
     }
     return result;

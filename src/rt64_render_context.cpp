@@ -124,7 +124,6 @@ public:
             );
             ImGui::GetIO().IniFilename = nullptr;
             active_context = this;
-            refresh_asset_packs();
             RT64::SetRenderHooks(nullptr, &draw_render_diagnostics, nullptr);
         }
         else {

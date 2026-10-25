@@ -128,9 +128,10 @@ Number keys select the weapon slots in the standard Duke order: `1` pistol, `2`
 shotgun, `3` chaingun, `4` RPG, `5` pipebomb, `6` shrinker, `7` devastator,
 `8` tripbomb, and `9` freezer. Press the same number again within about 400 ms
 to select that slot's alternate weapon where one exists: dual pistols, the
-alternate shotgun, alternate RPG, remote detonator, or expander. Single presses
-continue to select the primary weapon and normal ownership/ammo checks still
-apply.
+alternate shotgun, the Ripper, alternate RPG, remote detonator, or expander.
+The Ripper uses chaingun ammo, fires one shot every two frames, and keeps its
+own single-barrel HRP presentation and muzzle flash. Single presses continue
+to select the primary weapon and normal ownership/ammo checks still apply.
 
 The PC build skips the startup Controller Pak check; saves and loads use the persistent virtual Pak. Press any keyboard key or controller button during the remaining logo or intro screens to jump directly to the main menu.
 
