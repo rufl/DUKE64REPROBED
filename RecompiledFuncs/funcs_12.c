@@ -18773,6 +18773,7 @@ L_8004C4E4:
 RECOMP_FUNC void processinput(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+    const int mouse_freelook = duke64_mouse_freelook_active();
     // 0x800A34E0: addiu       $sp, $sp, -0xE0
     ctx->r29 = ADD32(ctx->r29, -0XE0);
     // 0x800A34E4: sw          $a0, 0xE0($sp)
@@ -26357,6 +26358,8 @@ L_800A5D84:
     // 0x800A5D88: sh          $t9, 0x370($s0)
     MEM_H(0X370, ctx->r16) = ctx->r25;
 L_800A5D8C:
+    if (mouse_freelook)
+        MEM_B(0X364, ctx->r16) = 0;
     // 0x800A5D8C: lbu         $v0, 0x364($s0)
     ctx->r2 = MEM_BU(ctx->r16, 0X364);
     // 0x800A5D90: blez        $v0, L_800A5DB0
@@ -26457,42 +26460,13 @@ L_800A5DF4:
     // 0x800A5E0C: sh          $zero, 0x2B8($s0)
     MEM_H(0X2B8, ctx->r16) = 0;
 L_800A5E10:
-    // 0x800A5E10: lw          $v0, 0x220($s0)
-    ctx->r2 = S32(MEM_W(ctx->r16, 0X220));
 L_800A5E14:
-    // 0x800A5E14: addiu       $t7, $zero, 0xE4
-    ctx->r15 = ADD32(0, 0XE4);
-    // 0x800A5E18: slti        $at, $v0, 0xE5
-    ctx->r1 = SIGNED(ctx->r2) < 0XE5 ? 1 : 0;
-    // 0x800A5E1C: bnel        $at, $zero, L_800A5E30
-    if (ctx->r1 != 0) {
-        // 0x800A5E20: slti        $at, $v0, -0x1C
-        ctx->r1 = SIGNED(ctx->r2) < -0X1C ? 1 : 0;
-            goto L_800A5E30;
+    if (!mouse_freelook) {
+        if (SIGNED(MEM_W(0X220, ctx->r16)) > 0XE4)
+            MEM_W(0X220, ctx->r16) = 0XE4;
+        else if (SIGNED(MEM_W(0X220, ctx->r16)) < -0X1C)
+            MEM_W(0X220, ctx->r16) = -0X1C;
     }
-    goto skip_138;
-    // 0x800A5E20: slti        $at, $v0, -0x1C
-    ctx->r1 = SIGNED(ctx->r2) < -0X1C ? 1 : 0;
-    skip_138:
-    // 0x800A5E24: b           L_800A5E3C
-    // 0x800A5E28: sw          $t7, 0x220($s0)
-    MEM_W(0X220, ctx->r16) = ctx->r15;
-        goto L_800A5E3C;
-    // 0x800A5E28: sw          $t7, 0x220($s0)
-    MEM_W(0X220, ctx->r16) = ctx->r15;
-    // 0x800A5E2C: slti        $at, $v0, -0x1C
-    ctx->r1 = SIGNED(ctx->r2) < -0X1C ? 1 : 0;
-L_800A5E30:
-    // 0x800A5E30: beq         $at, $zero, L_800A5E3C
-    if (ctx->r1 == 0) {
-        // 0x800A5E34: addiu       $t8, $zero, -0x1C
-        ctx->r24 = ADD32(0, -0X1C);
-            goto L_800A5E3C;
-    }
-    // 0x800A5E34: addiu       $t8, $zero, -0x1C
-    ctx->r24 = ADD32(0, -0X1C);
-    // 0x800A5E38: sw          $t8, 0x220($s0)
-    MEM_W(0X220, ctx->r16) = ctx->r24;
 L_800A5E3C:
     // 0x800A5E3C: lh          $v0, 0x2C8($s0)
     ctx->r2 = S32(MEM_H(ctx->r16, 0X2C8));

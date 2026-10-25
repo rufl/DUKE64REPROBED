@@ -134,6 +134,7 @@ void animatecamsprite(void)
 }
 
 extern long lastvisinc;
+extern int duke64_mouse_freelook_active(void);
 
 void displayrooms(short snum,long smoothratio)
 {
@@ -228,7 +229,8 @@ void displayrooms(short snum,long smoothratio)
             if (cposz > fz-(4<<8)) cposz = fz-(4<<8);
         }
 
-        choriz = max(-28, min(228, choriz));
+        if (!duke64_mouse_freelook_active())
+            choriz = max(-28, min(228, choriz));
 
         globalsectnum = sect;
         globalang = cang;

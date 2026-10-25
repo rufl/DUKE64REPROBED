@@ -33,6 +33,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "build.h"
 #include "names.h"
 #include "soundefs.h"
+extern int duke64_mouse_freelook_active(void);
 
 #ifndef NULL
 #define NULL 0

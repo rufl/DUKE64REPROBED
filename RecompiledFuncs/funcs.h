@@ -455,6 +455,7 @@ int duke64_keyboard_move_forward(void);
 int duke64_keyboard_move_backward(void);
 int duke64_keyboard_strafe_left(void);
 int duke64_keyboard_strafe_right(void);
+int duke64_mouse_freelook_active(void);
 int duke64_consume_weapon_slot(void);
 void initengine(uint8_t* rdram, recomp_context* ctx);
 void getangle(uint8_t* rdram, recomp_context* ctx);

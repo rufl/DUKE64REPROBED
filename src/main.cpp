@@ -447,6 +447,9 @@ extern "C" void duke64_set_gameplay_active(int state) {
         }
     }
 }
+extern "C" int duke64_mouse_freelook_active() {
+    return gameplay_active.load(std::memory_order_acquire) ? 1 : 0;
+}
 
 extern "C" int duke64_keyboard_move_forward() {
     return keyboard_move_forward_amount.load(std::memory_order_acquire);

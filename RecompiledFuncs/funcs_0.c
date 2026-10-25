@@ -3676,62 +3676,17 @@ L_800716DC:
     // 0x800716F0: or          $a0, $v0, $zero
     ctx->r4 = ctx->r2 | 0;
 L_800716F4:
-    // 0x800716F4: slti        $at, $t0, 0xE5
-    ctx->r1 = SIGNED(ctx->r8) < 0XE5 ? 1 : 0;
 L_800716F8:
-    // 0x800716F8: bne         $at, $zero, L_80071708
-    if (ctx->r1 != 0) {
-        // 0x800716FC: lh          $t4, 0x82($sp)
-        ctx->r12 = S32(MEM_H(ctx->r29, 0X82));
-            goto L_80071708;
-    }
-    // 0x800716FC: lh          $t4, 0x82($sp)
-    ctx->r12 = S32(MEM_H(ctx->r29, 0X82));
-    // 0x80071700: b           L_8007170C
-    // 0x80071704: addiu       $v0, $zero, 0xE4
-    ctx->r2 = ADD32(0, 0XE4);
-        goto L_8007170C;
-    // 0x80071704: addiu       $v0, $zero, 0xE4
-    ctx->r2 = ADD32(0, 0XE4);
 L_80071708:
-    // 0x80071708: or          $v0, $t0, $zero
-    ctx->r2 = ctx->r8 | 0;
 L_8007170C:
-    // 0x8007170C: slti        $at, $v0, -0x1C
-    ctx->r1 = SIGNED(ctx->r2) < -0X1C ? 1 : 0;
-    // 0x80071710: beql        $at, $zero, L_80071724
-    if (ctx->r1 == 0) {
-        // 0x80071714: slti        $at, $t0, 0xE5
-        ctx->r1 = SIGNED(ctx->r8) < 0XE5 ? 1 : 0;
-            goto L_80071724;
-    }
-    goto skip_4;
-    // 0x80071714: slti        $at, $t0, 0xE5
-    ctx->r1 = SIGNED(ctx->r8) < 0XE5 ? 1 : 0;
-    skip_4:
-    // 0x80071718: b           L_80071740
-    // 0x8007171C: addiu       $t0, $zero, -0x1C
-    ctx->r8 = ADD32(0, -0X1C);
-        goto L_80071740;
-    // 0x8007171C: addiu       $t0, $zero, -0x1C
-    ctx->r8 = ADD32(0, -0X1C);
-    // 0x80071720: slti        $at, $t0, 0xE5
-    ctx->r1 = SIGNED(ctx->r8) < 0XE5 ? 1 : 0;
 L_80071724:
-    // 0x80071724: bne         $at, $zero, L_80071734
-    if (ctx->r1 != 0) {
-        // 0x80071728: or          $v0, $t0, $zero
-        ctx->r2 = ctx->r8 | 0;
-            goto L_80071734;
-    }
-    // 0x80071728: or          $v0, $t0, $zero
     ctx->r2 = ctx->r8 | 0;
-    // 0x8007172C: b           L_80071734
-    // 0x80071730: addiu       $v0, $zero, 0xE4
-    ctx->r2 = ADD32(0, 0XE4);
-        goto L_80071734;
-    // 0x80071730: addiu       $v0, $zero, 0xE4
-    ctx->r2 = ADD32(0, 0XE4);
+    if (!duke64_mouse_freelook_active()) {
+        if (SIGNED(ctx->r2) < -0X1C)
+            ctx->r2 = ADD32(0, -0X1C);
+        else if (SIGNED(ctx->r2) > 0XE4)
+            ctx->r2 = ADD32(0, 0XE4);
+    }
 L_80071734:
     // 0x80071734: sll         $t0, $v0, 16
     ctx->r8 = S32(ctx->r2 << 16);

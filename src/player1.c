@@ -723,6 +723,7 @@ void processinput(short snum)
     kb = &p->kickback_pic;
 
     sb_snum = sync[snum].bits;
+    const int mouse_freelook = duke64_mouse_freelook_active();
 
     if (sb_snum)
         p->crack_time = 777 + (TRAND&255);
@@ -1728,7 +1729,9 @@ void processinput(short snum)
             if( sb_snum&(1<<5) ) p->horiz -= 6;
             p->horiz -= 6;
         }
-        if(p->return_to_center > 0)
+        if(mouse_freelook)
+            p->return_to_center = 0;
+        if(!mouse_freelook && p->return_to_center > 0)
             if( (sb_snum&(1<<13)) == 0 && (sb_snum&(1<<14)) == 0 )
         {
             p->return_to_center--;
@@ -1758,8 +1761,11 @@ void processinput(short snum)
              if( p->horizoff > -5 && p->horizoff < 5) p->horizoff = 0;
         }
 
-        if(p->horiz > 228) p->horiz = 228;
-        else if(p->horiz < -28) p->horiz = -28;
+        if(!mouse_freelook)
+        {
+            if(p->horiz > 228) p->horiz = 228;
+            else if(p->horiz < -28) p->horiz = -28;
+        }
 
     //Shooting code/changes
 
