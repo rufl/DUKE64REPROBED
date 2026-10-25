@@ -1557,11 +1557,14 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
         keyboard_escape_was_down.exchange(escape_held, std::memory_order_acq_rel);
     const bool enter_rising = enter_held && !enter_was_down;
     const bool escape_rising = escape_held && !escape_was_down;
-    const bool escape_active = escape_pressed || escape_rising;
+    // Keep Escape active while gameplay is sampling so a quick tap cannot
+    // be lost before the game processes the Start button transition.
+    const bool escape_active =
+        escape_pressed ||
+        escape_rising ||
+        (gameplay && escape_held);
     if (!gameplay && escape_active)
         menu_escape_pending.store(true, std::memory_order_release);
-    // Enter is the menu accept action. Keep it active while held so the
-    // game cannot miss the transition from startup screens into menus.
     const bool enter_active =
         enter_pressed ||
         enter_held ||
@@ -1599,9 +1602,6 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
         state |= N64_A;                                                // Enter selects menu items, including difficulty.
     if (escape_active) {
         state |= gameplay ? N64_START : N64_B;                        // Escape opens/backtracks menus.
-        if (gameplay) {
-            gameplay_active.store(false, std::memory_order_relaxed);
-        }
     }
     if (gameplay) {
         mouse_turn_remainder += static_cast<float>(turn_delta) *

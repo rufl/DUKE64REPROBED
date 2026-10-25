@@ -19,6 +19,8 @@ All notable changes to the Duke Nukem 64 recompilation are documented here.
 
 - Restored held Enter menu acceptance so startup and nested menu transitions
   cannot miss the keyboard accept action.
+- Kept Escape held as the gameplay Start action until the game samples the
+  transition, preventing quick Escape taps from being missed.
 
 ### Known limitations
 
