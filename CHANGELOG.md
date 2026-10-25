@@ -17,6 +17,9 @@ All notable changes to the Duke Nukem 64 recompilation are documented here.
   avoiding the runtime `std::system_error` that previously terminated the
   process.
 
+- Restored held Enter menu acceptance so startup and nested menu transitions
+  cannot miss the keyboard accept action.
+
 ### Known limitations
 
 - The current RT64 integration does not automatically load Duke64 texture

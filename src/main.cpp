@@ -1560,12 +1560,11 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
     const bool escape_active = escape_pressed || escape_rising;
     if (!gameplay && escape_active)
         menu_escape_pending.store(true, std::memory_order_release);
-    // Enter is a menu click, not a held gameplay button. Keep the event
-    // latch and the physical rising edge so quick taps are not lost, but do
-    // not emit A on every input sample while the key remains down.
+    // Enter is the menu accept action. Keep it active while held so the
+    // game cannot miss the transition from startup screens into menus.
     const bool enter_active =
         enter_pressed ||
-        enter_rising ||
+        enter_held ||
         (start_pending && !escape_active);
     const bool mighty_foot_pending =
         keyboard_mighty_foot_pending.exchange(false, std::memory_order_acq_rel);
