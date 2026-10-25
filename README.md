@@ -230,10 +230,11 @@ This is a shader-compatible fallback, not a full reflected-room render pass. Ref
 The runtime uses the existing N64ModernRuntime mod scanner and stores user mods in the
 active data directory's `mods` folder. This is `%LOCALAPPDATA%\Duke64Recompiled\mods`
 unless portable mode is enabled. Loose mod directories and `.nrm` packages are always
-supported. Source-port-style `.zip`, `.pk3`, and `.pk4` packages are also discovered;
-`.rtz` is accepted for a standalone RT64 texture pack. A package may contain `mod.json`,
-but the source-port-style containers can omit it and receive a default manifest based on
-the filename.
+supported. Source-port-style `.zip`, `.pk3`, and `.pk4` packages are also discovered.
+Texture-only standalone `.rtz` packages are not currently registered by this build;
+use a Duke64 asset manifest for audio and voxel content. A package may contain
+`mod.json`, but the source-port-style containers can omit it and receive a default
+manifest based on the filename.
 
 The layout is intentionally close to the EDuke32/Raze workflow while remaining a native
 Duke64 format:
@@ -243,9 +244,6 @@ my-pack/
   mod.json
   duke64.assets.json
   assets/
-    textures/
-      rt64.json
-      textures/*.dds
     voxels.json
     voxels/
       123.vox
@@ -277,7 +275,6 @@ absolute paths and `..` traversal are rejected.
 ```json
 {
     "version": 1,
-    "textures": "assets/textures",
     "voxels": "assets/voxels.json",
     "sounds": "assets/sounds.json",
     "music": "assets/music.json"
@@ -286,10 +283,10 @@ absolute paths and `..` traversal are rejected.
 
 ### Texture packs
 
-Textures use RT64's existing replacement database. `textures` points at a directory
-containing `rt64.json`, or directly at that file. DDS and PNG files referenced by the
-database are loaded from the same directory. A standalone `.rtz` package contains
-`rt64.json` at its root.
+RT64 texture manifests and standalone `.rtz` packs are not loaded by the current
+integration. The `textures` asset-manifest key is ignored; use audio or voxel
+indexes for runtime asset packs until a safe RT64 replacement-loading lifecycle
+hook is available.
 
 ### Voxel indexes
 

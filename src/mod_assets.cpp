@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -27,7 +28,6 @@ extern "C" void duke64_audio_start_music(const int16_t* samples, size_t sample_c
 extern "C" void duke64_audio_stop_music();
 
 constexpr std::string_view asset_manifest_name = "duke64.assets.json";
-constexpr std::string_view texture_manifest_name = "rt64.json";
 constexpr int max_audio_id = 4095;
 constexpr size_t max_manifest_bytes = 4 * 1024 * 1024;
 constexpr size_t max_voxel_bytes = 64 * 1024 * 1024;
@@ -43,15 +43,8 @@ struct VoxelEntry {
     std::string texture_path;
 };
 
-struct PendingTextureDirectory {
-    std::filesystem::path path;
-    std::string zip_base;
-};
-
 struct AssetPack {
     std::string mod_id;
-    std::filesystem::path root_path;
-    std::optional<PendingTextureDirectory> texture_directory;
     std::unordered_map<int, AudioClip> sounds;
     std::unordered_map<int, AudioClip> music;
     std::vector<VoxelEntry> voxels;
@@ -98,16 +91,6 @@ std::optional<std::string> safe_asset_path(const json& value) {
         result += part;
     }
     return result.empty() ? std::nullopt : std::optional<std::string>{ std::move(result) };
-}
-
-std::string append_asset_path(std::string_view base, std::string_view child) {
-    if (base.empty()) {
-        return std::string(child);
-    }
-    std::string result(base);
-    result.push_back('/');
-    result += child;
-    return result;
 }
 
 std::optional<std::vector<char>> read_asset(const recomp::mods::ModHandle& mod, std::string_view path, bool enforce_size = true) {
@@ -378,52 +361,9 @@ bool parse_voxel_manifest(const recomp::mods::ModHandle& mod, const json& manife
     return any_loaded;
 }
 
-std::optional<std::string> get_texture_base(const recomp::mods::ModHandle& mod, const json* asset_manifest) {
-    auto texture_manifest_is_nonempty = [&](const std::string& path) {
-        const auto manifest = read_json_asset(mod, path);
-        return manifest && manifest->is_object() &&
-            manifest->contains("textures") && (*manifest)["textures"].is_array() &&
-            !(*manifest)["textures"].empty();
-    };
-
-    if (asset_manifest != nullptr && asset_manifest->contains("textures")) {
-        const auto configured = safe_asset_path(asset_manifest->at("textures"));
-        if (!configured) {
-            return std::nullopt;
-        }
-        if (configured->size() >= texture_manifest_name.size() &&
-            configured->compare(configured->size() - texture_manifest_name.size(), texture_manifest_name.size(), texture_manifest_name) == 0) {
-            const std::filesystem::path file_path(*configured);
-            const std::string parent = file_path.parent_path().generic_string();
-            if (mod.manifest.file_handle->file_exists(*configured) &&
-                texture_manifest_is_nonempty(*configured)) {
-                return parent;
-            }
-            return std::nullopt;
-        }
-        const std::string marker = append_asset_path(*configured, texture_manifest_name);
-        if (mod.manifest.file_handle->file_exists(marker) &&
-            texture_manifest_is_nonempty(marker)) {
-            return *configured;
-        }
-        return std::nullopt;
-    }
-
-    if (mod.manifest.file_handle->file_exists("rt64.json") &&
-        texture_manifest_is_nonempty("rt64.json")) {
-        return std::string{};
-    }
-    if (mod.manifest.file_handle->file_exists("assets/textures/rt64.json") &&
-        texture_manifest_is_nonempty("assets/textures/rt64.json")) {
-        return std::string("assets/textures");
-    }
-    return std::nullopt;
-}
-
 std::optional<AssetPack> load_asset_pack(const recomp::mods::ModHandle& mod) {
     const bool has_asset_manifest = mod.manifest.file_handle->file_exists(std::string(asset_manifest_name));
-    const bool has_texture_manifest = mod.manifest.file_handle->file_exists(std::string(texture_manifest_name));
-    if (!has_asset_manifest && !has_texture_manifest) {
+    if (!has_asset_manifest) {
         return std::nullopt;
     }
 
@@ -441,20 +381,6 @@ std::optional<AssetPack> load_asset_pack(const recomp::mods::ModHandle& mod) {
 
     AssetPack pack;
     pack.mod_id = mod.manifest.mod_id;
-    pack.root_path = mod.manifest.mod_root_path;
-
-    const auto texture_base = get_texture_base(mod, asset_manifest ? &*asset_manifest : nullptr);
-    if (texture_base) {
-        const bool is_archive = std::filesystem::is_regular_file(pack.root_path);
-        if (is_archive) {
-            pack.texture_directory = PendingTextureDirectory{ pack.root_path, *texture_base };
-        }
-        else {
-            pack.texture_directory = PendingTextureDirectory{
-                pack.root_path / std::filesystem::path(*texture_base), {}
-            };
-        }
-    }
 
     if (asset_manifest) {
         const auto load_json_path = [&](std::string_view key) -> std::optional<json> {
@@ -481,7 +407,7 @@ std::optional<AssetPack> load_asset_pack(const recomp::mods::ModHandle& mod) {
         }
     }
 
-    if (!pack.texture_directory && pack.sounds.empty() && pack.music.empty() && pack.voxels.empty()) {
+    if (pack.sounds.empty() && pack.music.empty() && pack.voxels.empty()) {
         return std::nullopt;
     }
     return pack;
@@ -536,10 +462,9 @@ void on_asset_enabled(recomp::mods::ModContext&, const recomp::mods::ModHandle& 
             const size_t voxel_count = pack->voxels.size();
             const size_t sound_count = pack->sounds.size();
             const size_t music_count = pack->music.size();
-            const bool has_textures = pack->texture_directory.has_value();
             asset_packs[pack->mod_id] = std::move(*pack);
-            std::fprintf(stderr, "Loaded Duke64 assets from %s: textures=%s voxels=%zu sounds=%zu music=%zu\n",
-                         mod.manifest.mod_id.c_str(), has_textures ? "yes" : "no", voxel_count, sound_count, music_count);
+            std::fprintf(stderr, "Loaded Duke64 assets from %s: voxels=%zu sounds=%zu music=%zu\n",
+                         mod.manifest.mod_id.c_str(), voxel_count, sound_count, music_count);
         }
         else {
             asset_packs.erase(mod.manifest.mod_id);
@@ -590,19 +515,6 @@ void register_mod_asset_content_types() {
     content_types_registered = true;
 }
 
-std::vector<RT64::ReplacementDirectory> get_texture_replacement_directories() {
-    std::lock_guard lock(asset_mutex);
-    std::vector<RT64::ReplacementDirectory> result;
-    result.reserve(ordered_asset_ids.size());
-    for (const std::string& mod_id : ordered_asset_ids) {
-        const auto pack_it = asset_packs.find(mod_id);
-        if (pack_it != asset_packs.end() && pack_it->second.texture_directory) {
-            const auto& pending = *pack_it->second.texture_directory;
-            result.emplace_back(pending.path, pending.zip_base);
-        }
-    }
-    return result;
-}
 
 } // namespace duke64
 

@@ -137,12 +137,6 @@ public:
             active_context = nullptr;
         }
     }
-    void refresh_asset_packs() {
-        if (!app || !app->textureCache) {
-            return;
-        }
-        app->textureCache->loadReplacementDirectories(duke64::get_texture_replacement_directories());
-    }
     bool valid() override { return app != nullptr; }
     bool update_config(const ultramodern::renderer::GraphicsConfig& old_config, const ultramodern::renderer::GraphicsConfig& new_config) override {
         if (!app || old_config == new_config) return false;
@@ -265,11 +259,6 @@ static void draw_render_diagnostics(RenderCommandList* command_list,
         active_context->draw_diagnostics(command_list);
     }
 }
-}
-extern "C" void duke64_refresh_asset_packs() {
-    if (active_context != nullptr) {
-        active_context->refresh_asset_packs();
-    }
 }
 
 std::unique_ptr<ultramodern::renderer::RendererContext> create_render_context(uint8_t* rdram, ultramodern::renderer::WindowHandle handle, bool developer_mode) {

@@ -1,6 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-void duke64_refresh_asset_packs(void);
 
 static int duke64_last_weapon_slot = 0;
 static int duke64_weapon_slot_window = 0;
@@ -12,9 +11,6 @@ enum {
     DUKE64_SHOTSPARK1_PLUS_2 = 0XA03,
     DUKE64_CHAINGUN_SOUND = 268,
 };
-static int duke64_ripper_assets_refreshed = 0;
-
-
 int duke64_is_ripper_mode(void) {
     return duke64_ripper_selected;
 }
@@ -96,10 +92,6 @@ void duke64_display_ripper(uint8_t* rdram, recomp_context* ctx) {
     const int palette = SIGNED(MEM_B(0XA9, ctx->r29));
     const int kickback = SIGNED(MEM_H(0X2D4, player));
 
-    if (!duke64_ripper_assets_refreshed) {
-        duke64_refresh_asset_packs();
-        duke64_ripper_assets_refreshed = 1;
-    }
     ctx->r4 = weapon_xoffset + 235 - (look_ang >> 1);
     ctx->r5 = gun_pos + 265;
     ctx->r6 = DUKE64_CHAINGUN_SPRITE_TILE;

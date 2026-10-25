@@ -2,6 +2,27 @@
 
 All notable changes to the Duke Nukem 64 recompilation are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Added the Ripper as the double-tap alternate for weapon slot `3`. It uses
+  chaingun ammo, fires one shot every two frames, and uses the packaged Ripper
+  weapon and muzzle-flash asset files.
+
+### Fixed
+
+- Removed the Ripper display-time RT64 replacement reload. Selecting the Ripper
+  no longer invokes the RT64 replacement loader while the game is rendering,
+  avoiding the runtime `std::system_error` that previously terminated the
+  process.
+
+### Known limitations
+
+- The current RT64 integration does not automatically load Duke64 texture
+  manifests or standalone `.rtz` packs. Audio and voxel asset manifests remain
+  supported; texture replacement loading requires a safe RT64 lifecycle hook.
+
 ## [0.1.0-alpha.1]
 
 ### Added
