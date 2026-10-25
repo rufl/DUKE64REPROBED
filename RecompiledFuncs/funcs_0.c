@@ -2227,8 +2227,8 @@ RECOMP_FUNC void func_8004D380(uint8_t* rdram, recomp_context* ctx) {
     ctx->r24 = S32(ctx->r4 << 6);
     // 0x8004D39C: addu        $v0, $t8, $t9
     ctx->r2 = ADD32(ctx->r24, ctx->r25);
-    // 0x8004D3A0: addiu       $t3, $zero, 0x200
-    ctx->r11 = ADD32(0, 0X200);
+    // 0x8004D3A0: addiu       $t3, $zero, 0x4000
+    ctx->r11 = ADD32(0, 0X4000);
     // 0x8004D3A4: sw          $t3, 0x14($v0)
     MEM_W(0X14, ctx->r2) = ctx->r11;
     // 0x8004D3A8: sll         $t3, $a0, 3
@@ -2239,14 +2239,14 @@ RECOMP_FUNC void func_8004D380(uint8_t* rdram, recomp_context* ctx) {
     ctx->r11 = S32(ctx->r11 << 3);
     // 0x8004D3B4: addu        $t3, $t3, $a0
     ctx->r11 = ADD32(ctx->r11, ctx->r4);
-    // 0x8004D3B8: addiu       $t0, $zero, 0x10
-    ctx->r8 = ADD32(0, 0X10);
-    // 0x8004D3BC: addiu       $t1, $zero, 0x4000
-    ctx->r9 = ADD32(0, 0X4000);
+    // 0x8004D3B8: addiu       $t0, $zero, 0x8
+    ctx->r8 = ADD32(0, 0X8);
+    // 0x8004D3BC: addiu       $t1, $zero, 0x4
+    ctx->r9 = ADD32(0, 0X4);
     // 0x8004D3C0: addiu       $t2, $zero, 0x2000
     ctx->r10 = ADD32(0, 0X2000);
-    // 0x8004D3C4: addiu       $t4, $zero, 0x100
-    ctx->r12 = ADD32(0, 0X100);
+    // 0x8004D3C4: addiu       $t4, $zero, 0x8000
+    ctx->r12 = ADD32(0, 0X8000);
     // 0x8004D3C8: sll         $t3, $t3, 2
     ctx->r11 = S32(ctx->r11 << 2);
     // 0x8004D3CC: sw          $t0, 0x0($v0)
@@ -2259,18 +2259,18 @@ RECOMP_FUNC void func_8004D380(uint8_t* rdram, recomp_context* ctx) {
     MEM_W(0X18, ctx->r2) = ctx->r12;
     // 0x8004D3DC: subu        $t3, $t3, $a0
     ctx->r11 = SUB32(ctx->r11, ctx->r4);
-    // 0x8004D3E0: addiu       $t5, $zero, 0x800
-    ctx->r13 = ADD32(0, 0X800);
-    // 0x8004D3E4: addiu       $t6, $zero, 0x400
-    ctx->r14 = ADD32(0, 0X400);
-    // 0x8004D3E8: ori         $t7, $zero, 0x8000
-    ctx->r15 = 0 | 0X8000;
+    // 0x8004D3E0: addiu       $t5, $zero, 0x200
+    ctx->r13 = ADD32(0, 0X200);
+    // 0x8004D3E4: addiu       $t6, $zero, 0x100
+    ctx->r14 = ADD32(0, 0X100);
+    // 0x8004D3E8: ori         $t7, $zero, 0x10
+    ctx->r15 = 0 | 0X10;
     // 0x8004D3EC: addiu       $t8, $zero, 0x20
     ctx->r24 = ADD32(0, 0X20);
-    // 0x8004D3F0: addiu       $t9, $zero, 0x8
-    ctx->r25 = ADD32(0, 0X8);
-    // 0x8004D3F4: addiu       $t0, $zero, 0x4
-    ctx->r8 = ADD32(0, 0X4);
+    // 0x8004D3F0: addiu       $t9, $zero, 0x0
+    ctx->r25 = ADD32(0, 0X0);
+    // 0x8004D3F4: addiu       $t0, $zero, 0x0
+    ctx->r8 = ADD32(0, 0X0);
     // 0x8004D3F8: addiu       $t1, $zero, 0x2
     ctx->r9 = ADD32(0, 0X2);
     // 0x8004D3FC: addiu       $t2, $zero, 0x1

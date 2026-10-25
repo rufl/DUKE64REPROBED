@@ -1,0 +1,21 @@
+Duke Nukem 3D N64 Music Pack
+================================
+
+Included asset: assets/audio/grabbag64.wav
+
+Source pack: Duke Nukem 3D N64 Music Pack, version 4.0
+Source page: https://hendricks266.duke4.net/music_packs_64.php
+Source archive: https://hendricks266.duke4.net/files/dn64_music_pack.7z
+
+The source readme credits the music to Eurocom and says the pack was compiled by
+Hendricks266. The WAV was converted from the source pack's
+highres/n64/grabbag64.ogg using FFmpeg to stereo 16-bit PCM at 22050 Hz. The
+source's exact -32768 PCM values were attenuated by 1% during conversion to
+avoid a Windows SDL audio-device failure on this build. Duke64-RE loops the
+decoded WAV from the beginning because the runtime music manifest has no
+per-file loop-point field.
+
+The source readme does not state a redistribution license. Preserve this
+attribution and use this optional pack only with a legally acquired Duke Nukem
+3D/Duke Nukem 64 installation. Obtain permission from the source rights holders
+before redistributing builds containing this asset.

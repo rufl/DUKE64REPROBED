@@ -450,6 +450,12 @@ void alCopy(uint8_t* rdram, recomp_context* ctx);
 void display_logos(uint8_t* rdram, recomp_context* ctx);
 int duke64_consume_startup_skip(void);
 void duke64_set_gameplay_active(int state);
+int duke64_mighty_foot_held(int controller_num);
+int duke64_keyboard_move_forward(void);
+int duke64_keyboard_move_backward(void);
+int duke64_keyboard_strafe_left(void);
+int duke64_keyboard_strafe_right(void);
+int duke64_consume_weapon_slot(void);
 void initengine(uint8_t* rdram, recomp_context* ctx);
 void getangle(uint8_t* rdram, recomp_context* ctx);
 void _freePVoice(uint8_t* rdram, recomp_context* ctx);
@@ -814,6 +820,20 @@ void static_5_8004CC48(uint8_t* rdram, recomp_context* ctx);
 void static_5_8004CB20(uint8_t* rdram, recomp_context* ctx);
 void static_5_800CD984(uint8_t* rdram, recomp_context* ctx);
 
+int duke64_controls_get_action_count(void);
+const char* duke64_controls_get_action_name(int action);
+const char* duke64_controls_get_binding_name(int action);
+int duke64_controls_get_rebind_action(void);
+int duke64_controls_is_rebinding(void);
+void duke64_controls_begin_rebind(int action);
+int duke64_controls_poll_rebind_result(void);
+int duke64_controls_get_option_count(void);
+const char* duke64_controls_get_option_name(int option);
+const char* duke64_controls_get_option_value(int option);
+void duke64_controls_adjust_option(int option, int direction);
+int duke64_get_window_width(void);
+int duke64_get_window_height(void);
+void duke64_adjust_window_resolution(int direction);
 #ifdef __cplusplus
 }
 #endif

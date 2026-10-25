@@ -309,28 +309,28 @@ glabel func_8004D380
     /* 2F94 8004D394 273993D0 */  addiu      $t9, $t9, %lo(controlmap)
     /* 2F98 8004D398 0004C180 */  sll        $t8, $a0, 6
     /* 2F9C 8004D39C 03191021 */  addu       $v0, $t8, $t9
-    /* 2FA0 8004D3A0 240B0200 */  addiu      $t3, $zero, 0x200
+    /* 2FA0 8004D3A0 240B4000 */  addiu      $t3, $zero, 0x4000
     /* 2FA4 8004D3A4 AC4B0014 */  sw         $t3, 0x14($v0)
     /* 2FA8 8004D3A8 000458C0 */  sll        $t3, $a0, 3
     /* 2FAC 8004D3AC 01645823 */  subu       $t3, $t3, $a0
     /* 2FB0 8004D3B0 000B58C0 */  sll        $t3, $t3, 3
     /* 2FB4 8004D3B4 01645821 */  addu       $t3, $t3, $a0
-    /* 2FB8 8004D3B8 24080010 */  addiu      $t0, $zero, 0x10
-    /* 2FBC 8004D3BC 24094000 */  addiu      $t1, $zero, 0x4000
+    /* 2FB8 8004D3B8 24080008 */  addiu      $t0, $zero, 0x8
+    /* 2FBC 8004D3BC 24090004 */  addiu      $t1, $zero, 0x4
     /* 2FC0 8004D3C0 240A2000 */  addiu      $t2, $zero, 0x2000
-    /* 2FC4 8004D3C4 240C0100 */  addiu      $t4, $zero, 0x100
+    /* 2FC4 8004D3C4 240C8000 */  addiu      $t4, $zero, 0x8000
     /* 2FC8 8004D3C8 000B5880 */  sll        $t3, $t3, 2
     /* 2FCC 8004D3CC AC480000 */  sw         $t0, 0x0($v0)
     /* 2FD0 8004D3D0 AC490004 */  sw         $t1, 0x4($v0)
     /* 2FD4 8004D3D4 AC4A0008 */  sw         $t2, 0x8($v0)
     /* 2FD8 8004D3D8 AC4C0018 */  sw         $t4, 0x18($v0)
     /* 2FDC 8004D3DC 01645823 */  subu       $t3, $t3, $a0
-    /* 2FE0 8004D3E0 240D0800 */  addiu      $t5, $zero, 0x800
-    /* 2FE4 8004D3E4 240E0400 */  addiu      $t6, $zero, 0x400
-    /* 2FE8 8004D3E8 340F8000 */  ori        $t7, $zero, 0x8000
+    /* 2FE0 8004D3E0 240D0200 */  addiu      $t5, $zero, 0x200
+    /* 2FE4 8004D3E4 240E0100 */  addiu      $t6, $zero, 0x100
+    /* 2FE8 8004D3E8 340F0010 */  ori        $t7, $zero, 0x10
     /* 2FEC 8004D3EC 24180020 */  addiu      $t8, $zero, 0x20
-    /* 2FF0 8004D3F0 24190008 */  addiu      $t9, $zero, 0x8
-    /* 2FF4 8004D3F4 24080004 */  addiu      $t0, $zero, 0x4
+    /* 2FF0 8004D3F0 24090000 */  addiu      $t9, $zero, 0x0
+    /* 2FF4 8004D3F4 24080000 */  addiu      $t0, $zero, 0x0
     /* 2FF8 8004D3F8 24090002 */  addiu      $t1, $zero, 0x2
     /* 2FFC 8004D3FC 240A0001 */  addiu      $t2, $zero, 0x1
     /* 3000 8004D400 000B5880 */  sll        $t3, $t3, 2

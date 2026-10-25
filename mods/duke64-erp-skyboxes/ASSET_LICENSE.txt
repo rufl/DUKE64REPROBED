@@ -1,0 +1,43 @@
+Duke Nukem 64 Enhanced Skyboxes + Music
+=========================================
+
+Sky asset: assets/textures/sky/tile0080.dds
+Music asset: assets/audio/grabbag64.wav
+
+Sky source
+----------
+Source pack: Enhanced Resource Pack for Duke Nukem 3D, archive MD5
+D8C4F35169091A240C675EBB31660AAE.
+Source pages:
+  https://hrp.duke4.net/
+  https://www.moddb.com/mods/enhanced-resource-pack-for-duke-nukem-3d
+
+The source skybox readme credits the skyboxes to Fox. The source pack's
+hrp_art_license.txt permits copying, altering, and distributing the artwork
+with attribution, prohibits commercial use, and requires derivatives to use
+the same or a similar license. The Duke Nukem 3D/Duke Nukem 64 intellectual
+property remains with its respective rights holders; use this asset only with
+a legally acquired game.
+
+The source tile0080.png was converted to an uncompressed 32-bit BGRA DDS for
+RT64 with no visual resampling or mipmap generation. Duke64's shared sky
+background hash is mapped to this replacement; the original game does not
+expose separate RT64 sky-face hashes for every sky state.
+
+Music source
+------------
+Source pack: Duke Nukem 3D N64 Music Pack, version 4.0
+Source page: https://hendricks266.duke4.net/music_packs_64.php
+Source archive: https://hendricks266.duke4.net/files/dn64_music_pack.7z
+
+The source readme credits the music to Eurocom and says the pack was compiled
+by Hendricks266. The WAV was converted from highres/n64/grabbag64.ogg with
+FFmpeg to stereo 16-bit PCM at 22050 Hz, retaining the N64 arrangement. The
+source's exact -32768 PCM values were attenuated by 1% during conversion to
+avoid a Windows SDL audio-device failure on this build. Duke64-RE loops the
+decoded WAV from the beginning because the runtime music manifest has no
+per-file loop-point field.
+
+The source readme does not state a redistribution license. Preserve this
+attribution and obtain permission from the source rights holders before
+redistributing builds containing this asset.

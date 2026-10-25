@@ -11,13 +11,19 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstdio>
 #include <memory>
 #include <mutex>
 extern std::atomic<bool> render_diagnostics_visible;
 
 extern "C" void duke64_set_display_settings(float gamma, float contrast) {
     RT64::setDisplaySettings(gamma, contrast);
+}
+extern "C" int duke64_get_aspect_ratio_mode();
+
+static RT64::UserConfiguration::AspectRatio duke64_aspect_ratio() {
+    return duke64_get_aspect_ratio_mode() == 1
+        ? RT64::UserConfiguration::AspectRatio::Expand
+        : RT64::UserConfiguration::AspectRatio::Original;
 }
 
 namespace {
@@ -94,6 +100,7 @@ public:
         RT64::ApplicationConfiguration app_config{};
         app_config.useConfigurationFile = false;
         app = std::make_unique<RT64::Application>(core, app_config);
+        app->userConfig.aspectRatio = duke64_aspect_ratio();
         app->userConfig.resolution = RT64::UserConfiguration::Resolution::WindowIntegerScale;
         app->userConfig.filtering = RT64::UserConfiguration::Filtering::AntiAliasedPixelScaling;
         app->userConfig.upscale2D = RT64::UserConfiguration::Upscale2D::ScaledOnly;
@@ -140,6 +147,7 @@ public:
     bool valid() override { return app != nullptr; }
     bool update_config(const ultramodern::renderer::GraphicsConfig& old_config, const ultramodern::renderer::GraphicsConfig& new_config) override {
         if (!app || old_config == new_config) return false;
+        app->userConfig.aspectRatio = duke64_aspect_ratio();
         app->updateUserConfig(true);
         return true;
     }

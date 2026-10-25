@@ -1,0 +1,19 @@
+{
+  "configuration": {
+    "autoPath": "rt64",
+    "configurationVersion": 3,
+    "hashVersion": 5,
+    "defaultOperation": "preload",
+    "defaultShift": "half"
+  },
+  "textures": [
+    {
+      "hashes": {
+        "rt64": "b95ef44534691f43"
+      },
+      "path": "sky/tile0080",
+      "operation": "preload",
+      "shift": "none"
+    }
+  ]
+}

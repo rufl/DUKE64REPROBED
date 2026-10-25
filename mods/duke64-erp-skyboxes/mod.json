@@ -1,0 +1,9 @@
+{
+  "game_id": "dukenukem",
+  "id": "duke64-erp-skyboxes",
+  "display_name": "Duke Nukem 64 Enhanced Skyboxes + Music",
+  "version": "1.0.0",
+  "authors": ["Fox", "Enhanced Resource Pack", "Eurocom", "Hendricks266"],
+  "minimum_recomp_version": "0.1.0",
+  "enabled_by_default": true
+}

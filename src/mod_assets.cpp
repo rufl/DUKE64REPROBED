@@ -513,41 +513,62 @@ void on_asset_enabled(recomp::mods::ModContext&, const recomp::mods::ModHandle& 
         std::fprintf(stderr, "Ignoring malformed Duke64 assets in mod %s: %s\n",
                      mod.manifest.mod_id.c_str(), error.what());
     }
+    bool refresh_textures = false;
     {
         std::lock_guard lock(asset_mutex);
+        const auto previous = asset_packs.find(mod.manifest.mod_id);
+        const bool previously_had_textures =
+            previous != asset_packs.end() && previous->second.texture_directory.has_value();
         if (pack) {
             const size_t voxel_count = pack->voxels.size();
             const size_t sound_count = pack->sounds.size();
             const size_t music_count = pack->music.size();
             const bool has_textures = pack->texture_directory.has_value();
+            refresh_textures = previously_had_textures || has_textures;
             asset_packs[pack->mod_id] = std::move(*pack);
             std::fprintf(stderr, "Loaded Duke64 assets from %s: textures=%s voxels=%zu sounds=%zu music=%zu\n",
                          mod.manifest.mod_id.c_str(), has_textures ? "yes" : "no", voxel_count, sound_count, music_count);
         }
         else {
+            refresh_textures = previously_had_textures;
             asset_packs.erase(mod.manifest.mod_id);
         }
         rebuild_asset_order_locked();
     }
-    duke64_refresh_asset_packs();
+    if (refresh_textures) {
+        duke64_refresh_asset_packs();
+    }
 }
 
 void on_asset_disabled(recomp::mods::ModContext&, const recomp::mods::ModHandle& mod) {
+    bool refresh_textures = false;
     {
         std::lock_guard lock(asset_mutex);
+        const auto previous = asset_packs.find(mod.manifest.mod_id);
+        refresh_textures = previous != asset_packs.end() && previous->second.texture_directory.has_value();
         asset_packs.erase(mod.manifest.mod_id);
         rebuild_asset_order_locked();
     }
-    duke64_refresh_asset_packs();
+    if (refresh_textures) {
+        duke64_refresh_asset_packs();
+    }
 }
 
 void on_assets_reordered(recomp::mods::ModContext&) {
+    bool refresh_textures = false;
     {
         std::lock_guard lock(asset_mutex);
         rebuild_asset_order_locked();
+        refresh_textures = std::any_of(
+            asset_packs.begin(), asset_packs.end(),
+            [](const auto& item) { return item.second.texture_directory.has_value(); }
+        );
     }
-    duke64_refresh_asset_packs();
+    if (refresh_textures) {
+        duke64_refresh_asset_packs();
+    }
 }
+
 
 } // namespace
 

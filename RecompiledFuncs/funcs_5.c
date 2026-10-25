@@ -1,6 +1,39 @@
 #include "recomp.h"
 #include "funcs.h"
 
+static int duke64_last_weapon_slot = 0;
+static int duke64_weapon_slot_window = 0;
+
+static int duke64_weapon_for_slot(int slot) {
+    const int alternate =
+        slot == duke64_last_weapon_slot && duke64_weapon_slot_window > 0;
+    duke64_last_weapon_slot = slot;
+    duke64_weapon_slot_window = 12;
+
+    switch (slot) {
+    case 1:
+        return alternate ? 12 : 1;  // dual pistols / pistol
+    case 2:
+        return alternate ? 13 : 2;  // alternate shotgun / shotgun
+    case 3:
+        return 3;  // chaingun
+    case 4:
+        return alternate ? 14 : 8;  // alternate RPG / RPG
+    case 5:
+        return alternate ? 11 : 5;  // remote detonator / pipebomb
+    case 6:
+        return alternate ? 7 : 6;  // expander / shrinker
+    case 7:
+        return 4;  // devastator
+    case 8:
+        return 9;  // tripbomb
+    case 9:
+        return 10;  // freezer
+    default:
+        return -1;
+    }
+}
+
 RECOMP_FUNC void cheatkeys(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -70,6 +103,19 @@ RECOMP_FUNC void cheatkeys(uint8_t* rdram, recomp_context* ctx) {
     }
     // 0x800B3270: lw          $t0, 0x5608($t0)
     ctx->r8 = S32(MEM_W(ctx->r8, 0X5608));
+    if (ctx->r14 == 0) {
+        if (duke64_weapon_slot_window > 0)
+            --duke64_weapon_slot_window;
+
+        int slot = duke64_consume_weapon_slot();
+        if (slot > 0) {
+            int weapon = duke64_weapon_for_slot(slot);
+            if (weapon >= 0) {
+                MEM_H(0X372, ctx->r16) = weapon;
+                MEM_H(0X376, ctx->r16) = 0;
+            }
+        }
+    }
     // 0x800B3274: lbu         $t4, 0x280($s0)
     ctx->r12 = MEM_BU(ctx->r16, 0X280);
     // 0x800B3278: addiu       $t5, $zero, 0x9
@@ -18544,6 +18590,15 @@ L_80062420:
     // 0x80062438: lh          $a0, 0x12($s0)
     ctx->r4 = S32(MEM_H(ctx->r16, 0X12));
     after_5:
+    if (MEM_H(ctx->r16, 0X12) == 0X230) {
+        ctx->r4 = S32(0X801C << 16);
+        ctx->r4 = ADD32(ctx->r4, 0X4418);
+        ctx->r3 = S32(MEM_W(ctx->r4, 0X0));
+        ctx->r8 = ADD32(ctx->r3, 0X8);
+        MEM_W(0X0, ctx->r4) = ctx->r8;
+        MEM_W(0X0, ctx->r3) = 0X00525464;
+        MEM_W(0X4, ctx->r3) = 0X50000001;
+    }
     // 0x8006243C: jal         0x800617AC
     // 0x80062440: lh          $a0, 0x0($s4)
     ctx->r4 = S32(MEM_H(ctx->r20, 0X0));
@@ -18552,6 +18607,15 @@ L_80062420:
     // 0x80062440: lh          $a0, 0x0($s4)
     ctx->r4 = S32(MEM_H(ctx->r20, 0X0));
     after_6:
+    if (MEM_H(ctx->r16, 0X12) == 0X230) {
+        ctx->r4 = S32(0X801C << 16);
+        ctx->r4 = ADD32(ctx->r4, 0X4418);
+        ctx->r3 = S32(MEM_W(ctx->r4, 0X0));
+        ctx->r8 = ADD32(ctx->r3, 0X8);
+        MEM_W(0X0, ctx->r4) = ctx->r8;
+        MEM_W(0X0, ctx->r3) = 0X00525464;
+        MEM_W(0X4, ctx->r3) = 0X50000000;
+    }
 L_80062444:
     // 0x80062444: lui         $t7, 0x8022
     ctx->r15 = S32(0X8022 << 16);

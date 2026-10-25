@@ -16,6 +16,7 @@
 #include "librecomp/game.hpp"
 #include "librecomp/rsp.hpp"
 #include "ultramodern/ultramodern.hpp"
+#include "ultramodern/config.hpp"
 #include "ultramodern/events.hpp"
 #include "ultramodern/error_handling.hpp"
 #include "ultramodern/input.hpp"
@@ -276,11 +277,31 @@ static void set_frequency(uint32_t frequency) {
     audio_stream = new_stream;
     audio_frequency = frequency;
 }
-static int mouse_turn;
-static int mouse_look;
+static std::atomic_int mouse_turn_delta{0};
+static std::atomic_int mouse_look_delta{0};
+static std::atomic<Uint32> mouse_buttons{0};
+static float mouse_turn_remainder = 0.0f;
+static float mouse_look_remainder = 0.0f;
+static constexpr float mouse_stick_range = 80.0f;
+static constexpr float mouse_input_gain = 0.75f;
 static float mouse_sensitivity = 1.0f;
+
 static int window_width = 1280;
 static int window_height = 720;
+struct WindowResolutionPreset {
+    int width;
+    int height;
+};
+static constexpr WindowResolutionPreset window_resolution_presets[] = {
+    { 640, 480 },
+    { 800, 600 },
+    { 1024, 768 },
+    { 1280, 720 },
+    { 1600, 900 },
+    { 1920, 1080 },
+    { 2560, 1440 },
+    { 3840, 2160 }
+};
 struct KeyboardBindings {
     SDL_Scancode move_forward = SDL_SCANCODE_W;
     SDL_Scancode move_backward = SDL_SCANCODE_S;
@@ -288,7 +309,8 @@ struct KeyboardBindings {
     SDL_Scancode strafe_right = SDL_SCANCODE_D;
     SDL_Scancode fire = SDL_SCANCODE_Z;
     SDL_Scancode jump = SDL_SCANCODE_SPACE;
-    SDL_Scancode crouch = SDL_SCANCODE_C;
+    SDL_Scancode crouch = SDL_SCANCODE_LCTRL;
+    SDL_Scancode mighty_foot = SDL_SCANCODE_V;
     SDL_Scancode start = SDL_SCANCODE_RETURN;
     SDL_Scancode open = SDL_SCANCODE_E;
     SDL_Scancode previous_weapon = SDL_SCANCODE_Q;
@@ -296,32 +318,183 @@ struct KeyboardBindings {
     SDL_Scancode inventory_previous = SDL_SCANCODE_LEFTBRACKET;
     SDL_Scancode inventory_next = SDL_SCANCODE_RIGHTBRACKET;
 } keyboard_bindings;
+enum KeyboardBindingAction {
+    keyboard_action_move_forward = 0,
+    keyboard_action_move_backward,
+    keyboard_action_strafe_left,
+    keyboard_action_strafe_right,
+    keyboard_action_fire,
+    keyboard_action_jump,
+    keyboard_action_crouch,
+    keyboard_action_mighty_foot,
+    keyboard_action_start,
+    keyboard_action_open,
+    keyboard_action_previous_weapon,
+    keyboard_action_next_weapon,
+    keyboard_action_inventory_previous,
+    keyboard_action_inventory_next,
+    keyboard_action_count
+};
+static std::mutex keyboard_bindings_mutex;
+static KeyboardBindings get_keyboard_bindings() {
+    std::lock_guard lock(keyboard_bindings_mutex);
+    return keyboard_bindings;
+}
+static void set_keyboard_binding(int action, SDL_Scancode scancode) {
+    std::lock_guard lock(keyboard_bindings_mutex);
+    switch (action) {
+    case keyboard_action_move_forward: keyboard_bindings.move_forward = scancode; break;
+    case keyboard_action_move_backward: keyboard_bindings.move_backward = scancode; break;
+    case keyboard_action_strafe_left: keyboard_bindings.strafe_left = scancode; break;
+    case keyboard_action_strafe_right: keyboard_bindings.strafe_right = scancode; break;
+    case keyboard_action_fire: keyboard_bindings.fire = scancode; break;
+    case keyboard_action_jump: keyboard_bindings.jump = scancode; break;
+    case keyboard_action_crouch: keyboard_bindings.crouch = scancode; break;
+    case keyboard_action_mighty_foot: keyboard_bindings.mighty_foot = scancode; break;
+    case keyboard_action_start: keyboard_bindings.start = scancode; break;
+    case keyboard_action_open: keyboard_bindings.open = scancode; break;
+    case keyboard_action_previous_weapon: keyboard_bindings.previous_weapon = scancode; break;
+    case keyboard_action_next_weapon: keyboard_bindings.next_weapon = scancode; break;
+    case keyboard_action_inventory_previous: keyboard_bindings.inventory_previous = scancode; break;
+    case keyboard_action_inventory_next: keyboard_bindings.inventory_next = scancode; break;
+    default: break;
+    }
+}
+static SDL_Scancode get_keyboard_binding(int action, const KeyboardBindings& bindings) {
+    switch (action) {
+    case keyboard_action_move_forward: return bindings.move_forward;
+    case keyboard_action_move_backward: return bindings.move_backward;
+    case keyboard_action_strafe_left: return bindings.strafe_left;
+    case keyboard_action_strafe_right: return bindings.strafe_right;
+    case keyboard_action_fire: return bindings.fire;
+    case keyboard_action_jump: return bindings.jump;
+    case keyboard_action_crouch: return bindings.crouch;
+    case keyboard_action_mighty_foot: return bindings.mighty_foot;
+    case keyboard_action_start: return bindings.start;
+    case keyboard_action_open: return bindings.open;
+    case keyboard_action_previous_weapon: return bindings.previous_weapon;
+    case keyboard_action_next_weapon: return bindings.next_weapon;
+    case keyboard_action_inventory_previous: return bindings.inventory_previous;
+    case keyboard_action_inventory_next: return bindings.inventory_next;
+    default: return SDL_SCANCODE_UNKNOWN;
+    }
+}
+static const char* keyboard_binding_action_name(int action) {
+    switch (action) {
+    case keyboard_action_move_forward: return "FORWARD";
+    case keyboard_action_move_backward: return "BACKWARD";
+    case keyboard_action_strafe_left: return "STRAFE LEFT";
+    case keyboard_action_strafe_right: return "STRAFE RIGHT";
+    case keyboard_action_fire: return "FIRE";
+    case keyboard_action_jump: return "JUMP";
+    case keyboard_action_crouch: return "CROUCH";
+    case keyboard_action_mighty_foot: return "MIGHTY FOOT";
+    case keyboard_action_start: return "START";
+    case keyboard_action_open: return "OPEN / USE";
+    case keyboard_action_previous_weapon: return "PREV WEAPON";
+    case keyboard_action_next_weapon: return "NEXT WEAPON";
+    case keyboard_action_inventory_previous: return "INV PREV";
+    case keyboard_action_inventory_next: return "INV NEXT";
+    default: return "";
+    }
+}
+static std::atomic_int keyboard_rebind_action{-1};
+static std::atomic_int keyboard_rebind_result{0};
+static std::atomic_bool keyboard_rebind_suppress_input{false};
+static std::array<std::atomic_bool, 4> mighty_foot_states{};
+extern "C" int duke64_mighty_foot_held(int controller_num) {
+    if (controller_num < 0 || controller_num >= static_cast<int>(mighty_foot_states.size())) {
+        return 0;
+    }
+    return mighty_foot_states[static_cast<size_t>(controller_num)].load(std::memory_order_acquire) ? 1 : 0;
+}
 static std::atomic_bool startup_skip_pending{false};
 static std::atomic_bool run_toggle{false};
 static std::atomic_bool gameplay_active{false};
+static std::atomic_int keyboard_move_forward_amount{0};
+static std::atomic_int keyboard_move_backward_amount{0};
+static std::atomic_int keyboard_strafe_left_amount{0};
+static std::atomic_int keyboard_strafe_right_amount{0};
+
 // SDL events are pumped on the graphics thread while the game samples input
 // on its own thread. Latch menu keys so quick taps cannot be missed between
 // those two update points.
 static std::atomic_bool keyboard_enter_pending{false};
+static std::atomic_bool keyboard_enter_was_down{false};
+static std::atomic_bool keyboard_escape_was_down{false};
 static std::atomic_bool keyboard_escape_pending{false};
+static std::atomic_bool menu_escape_pending{false};
 static std::atomic_bool keyboard_up_pending{false};
 static std::atomic_bool keyboard_down_pending{false};
 static std::atomic_bool keyboard_left_pending{false};
 static std::atomic_bool keyboard_right_pending{false};
+static std::atomic_bool keyboard_start_pending{false};
+static std::atomic_bool keyboard_mighty_foot_pending{false};
+static std::atomic_bool mouse_left_pending{false};
+static std::atomic_bool mouse_right_pending{false};
+static std::atomic<unsigned int> keyboard_weapon_press_counts[10]{};
 
 extern "C" void duke64_set_gameplay_active(int state) {
-    gameplay_active.store(state == 2, std::memory_order_relaxed);
+    const bool active = state == 2;
+    gameplay_active.store(active, std::memory_order_relaxed);
+    if (!active) {
+        keyboard_move_forward_amount.store(0, std::memory_order_release);
+        keyboard_move_backward_amount.store(0, std::memory_order_release);
+        keyboard_strafe_left_amount.store(0, std::memory_order_release);
+        keyboard_strafe_right_amount.store(0, std::memory_order_release);
+        for (int slot = 1; slot <= 9; ++slot) {
+            keyboard_weapon_press_counts[slot].store(0, std::memory_order_relaxed);
+        }
+    }
 }
+
+extern "C" int duke64_keyboard_move_forward() {
+    return keyboard_move_forward_amount.load(std::memory_order_acquire);
+}
+extern "C" int duke64_keyboard_move_backward() {
+    return keyboard_move_backward_amount.load(std::memory_order_acquire);
+}
+extern "C" int duke64_keyboard_strafe_left() {
+    return keyboard_strafe_left_amount.load(std::memory_order_acquire);
+}
+extern "C" int duke64_keyboard_strafe_right() {
+    return keyboard_strafe_right_amount.load(std::memory_order_acquire);
+}
+
+
+
 
 extern "C" int duke64_consume_startup_skip() {
     if (!startup_skip_pending.exchange(false, std::memory_order_acq_rel)) {
         return 0;
     }
-    std::fprintf(stderr, "Startup screens skipped\n");
     return 1;
+}
+extern "C" int duke64_consume_menu_escape() {
+    return menu_escape_pending.exchange(false, std::memory_order_acq_rel) ? 1 : 0;
+}
+extern "C" void duke64_request_quit() {
+    ultramodern::quit();
+}
+extern "C" int duke64_consume_weapon_slot() {
+    for (int slot = 1; slot <= 9; ++slot) {
+        auto& pending = keyboard_weapon_press_counts[slot];
+        unsigned int count = pending.load(std::memory_order_relaxed);
+        while (count != 0) {
+            if (pending.compare_exchange_weak(
+                    count,
+                    count - 1,
+                    std::memory_order_relaxed,
+                    std::memory_order_relaxed)) {
+                return slot;
+            }
+        }
+    }
+    return 0;
 }
 namespace duke64 {
     static FrameRateMode configured_frame_rate = FrameRateMode::Fps60;
+    static std::atomic_int configured_aspect_ratio{0};
 
     void set_frame_rate_mode(FrameRateMode mode) {
         configured_frame_rate = mode;
@@ -364,6 +537,14 @@ namespace duke64 {
     bool is_frame_rate_unlocked() {
         return configured_frame_rate == FrameRateMode::Unlocked;
     }
+
+    int get_aspect_ratio_mode() {
+        return configured_aspect_ratio.load(std::memory_order_relaxed);
+    }
+
+    const char* get_aspect_ratio_mode_name() {
+        return get_aspect_ratio_mode() == 1 ? "expand" : "original";
+    }
 }
 
 static float controller_deadzone = 0.24f;
@@ -372,6 +553,7 @@ static float gyro_sensitivity = 0.0f;
 static bool invert_aim_x = false;
 static bool invert_aim_y = false;
 static std::filesystem::path screenshot_path;
+static std::filesystem::path input_config_path;
 
 static std::filesystem::path get_user_data_path(const char* executable) {
     const auto executable_dir = std::filesystem::absolute(executable).parent_path();
@@ -389,12 +571,174 @@ static std::filesystem::path get_user_data_path(const char* executable) {
     std::free(local_app_data);
     return std::filesystem::current_path() / "Duke64Recompiled";
 }
+static std::mutex input_config_mutex;
+static std::string scancode_name(SDL_Scancode scancode) {
+    return std::string(SDL_GetScancodeName(scancode));
+}
+static nlohmann::json keyboard_config_json() {
+    const KeyboardBindings bindings = get_keyboard_bindings();
+    return {
+        {"move_forward", scancode_name(bindings.move_forward)},
+        {"move_backward", scancode_name(bindings.move_backward)},
+        {"strafe_left", scancode_name(bindings.strafe_left)},
+        {"strafe_right", scancode_name(bindings.strafe_right)},
+        {"fire", scancode_name(bindings.fire)},
+        {"jump", scancode_name(bindings.jump)},
+        {"crouch", scancode_name(bindings.crouch)},
+        {"mighty_foot", scancode_name(bindings.mighty_foot)},
+        {"start", scancode_name(bindings.start)},
+        {"open", scancode_name(bindings.open)},
+        {"previous_weapon", scancode_name(bindings.previous_weapon)},
+        {"next_weapon", scancode_name(bindings.next_weapon)},
+        {"inventory_previous", scancode_name(bindings.inventory_previous)},
+        {"inventory_next", scancode_name(bindings.inventory_next)}
+    };
+}
+static void save_input_config() {
+    if (input_config_path.empty()) {
+        return;
+    }
+    std::lock_guard config_lock(input_config_mutex);
+    try {
+        nlohmann::json config = nlohmann::json::object();
+        std::ifstream input(input_config_path);
+        if (input) {
+            config = nlohmann::json::parse(input);
+            if (!config.is_object()) {
+                config = nlohmann::json::object();
+            }
+        }
+        input.close();
+        config["keyboard"] = keyboard_config_json();
+        config["mouse_sensitivity"] = mouse_sensitivity;
+        config["invert_aim_x"] = invert_aim_x;
+        config["invert_aim_y"] = invert_aim_y;
+
+        std::ofstream output(input_config_path);
+        if (!output) {
+            std::fprintf(stderr, "Unable to save keyboard config %s\n",
+                         input_config_path.string().c_str());
+            return;
+        }
+        output << config.dump(4) << '\n';
+    }
+    catch (const nlohmann::json::exception& error) {
+        std::fprintf(stderr, "Unable to save keyboard config %s: %s\n",
+                     input_config_path.string().c_str(), error.what());
+    }
+}
+
+static void save_aspect_ratio_config() {
+    if (input_config_path.empty()) {
+        return;
+    }
+    std::lock_guard config_lock(input_config_mutex);
+    try {
+        std::ifstream input(input_config_path);
+        if (!input) {
+            return;
+        }
+        nlohmann::json config = nlohmann::json::parse(input);
+        if (!config.is_object()) {
+            return;
+        }
+        config["aspect_ratio"] = duke64::get_aspect_ratio_mode_name();
+        std::ofstream output(input_config_path);
+        if (output) {
+            output << config.dump(4) << '\n';
+        }
+    }
+    catch (const nlohmann::json::exception& error) {
+        std::fprintf(stderr, "Unable to save aspect ratio config %s: %s\n",
+                     input_config_path.string().c_str(), error.what());
+    }
+}
+static void save_window_size_config() {
+    if (input_config_path.empty()) {
+        return;
+    }
+    std::lock_guard config_lock(input_config_mutex);
+    try {
+        std::ifstream input(input_config_path);
+        if (!input) {
+            return;
+        }
+        nlohmann::json config = nlohmann::json::parse(input);
+        if (!config.is_object()) {
+            return;
+        }
+        config["window_width"] = window_width;
+        config["window_height"] = window_height;
+        std::ofstream output(input_config_path);
+        if (output) {
+            output << config.dump(4) << '\n';
+        }
+    }
+    catch (const nlohmann::json::exception& error) {
+        std::fprintf(stderr, "Unable to save window size config %s: %s\n",
+                     input_config_path.string().c_str(), error.what());
+    }
+}
+
+extern "C" int duke64_get_window_width() {
+    return window_width;
+}
+
+extern "C" int duke64_get_window_height() {
+    return window_height;
+}
+
+extern "C" void duke64_adjust_window_resolution(int direction) {
+    if (direction == 0) {
+        return;
+    }
+    constexpr int preset_count =
+        static_cast<int>(sizeof(window_resolution_presets) / sizeof(window_resolution_presets[0]));
+    int preset_index = -1;
+    for (int index = 0; index < preset_count; ++index) {
+        if (window_resolution_presets[index].width == window_width &&
+            window_resolution_presets[index].height == window_height) {
+            preset_index = index;
+            break;
+        }
+    }
+    if (preset_index < 0) {
+        preset_index = direction > 0 ? 0 : preset_count - 1;
+    }
+    else {
+        preset_index = std::clamp(preset_index + (direction > 0 ? 1 : -1), 0, preset_count - 1);
+    }
+    window_width = window_resolution_presets[preset_index].width;
+    window_height = window_resolution_presets[preset_index].height;
+    if (window != nullptr) {
+        SDL_SetWindowSize(window, window_width, window_height);
+    }
+    save_window_size_config();
+}
+
+
+extern "C" int duke64_get_aspect_ratio_mode() {
+    return duke64::get_aspect_ratio_mode();
+}
+
+extern "C" void duke64_set_aspect_ratio_mode(int mode) {
+    const int normalized_mode = mode == 1 ? 1 : 0;
+    if (duke64::get_aspect_ratio_mode() == normalized_mode) {
+        return;
+    }
+    duke64::configured_aspect_ratio.store(normalized_mode, std::memory_order_relaxed);
+    save_aspect_ratio_config();
+    ultramodern::renderer::GraphicsConfig graphics_config =
+        ultramodern::renderer::get_graphics_config();
+    graphics_config.ar_option = normalized_mode == 1
+        ? ultramodern::renderer::AspectRatio::Expand
+        : ultramodern::renderer::AspectRatio::Original;
+    ultramodern::renderer::set_graphics_config(graphics_config);
+}
 
 static void load_input_config(const std::filesystem::path& data_path) {
-    const auto config_path = data_path / "duke64.json";
-    const auto scancode_name = [](SDL_Scancode scancode) {
-        return std::string(SDL_GetScancodeName(scancode));
-    };
+    input_config_path = data_path / "duke64.json";
+    const auto& config_path = input_config_path;
     const auto parse_frame_rate = [](const nlohmann::json& config) {
         if (!config.contains("frame_rate") || !config["frame_rate"].is_string()) {
             return duke64::FrameRateMode::Fps60;
@@ -411,6 +755,12 @@ static void load_input_config(const std::filesystem::path& data_path) {
         if (value == "unlocked") return duke64::FrameRateMode::Unlocked;
         return duke64::FrameRateMode::Fps60;
     };
+    const auto parse_aspect_ratio = [](const nlohmann::json& config) {
+        if (!config.contains("aspect_ratio") || !config["aspect_ratio"].is_string()) {
+            return 0;
+        }
+        return config["aspect_ratio"].get<std::string>() == "expand" ? 1 : 0;
+    };
     if (!std::filesystem::exists(config_path)) {
         std::ofstream output(config_path);
         if (output) {
@@ -419,26 +769,13 @@ static void load_input_config(const std::filesystem::path& data_path) {
                 {"window_width", window_width},
                 {"window_height", window_height},
                 {"frame_rate", duke64::get_frame_rate_mode_name()},
+                {"aspect_ratio", duke64::get_aspect_ratio_mode_name()},
                 {"controller_deadzone", controller_deadzone},
                 {"controller_sensitivity", controller_sensitivity},
                 {"gyro_sensitivity", gyro_sensitivity},
                 {"invert_aim_x", invert_aim_x},
                 {"invert_aim_y", invert_aim_y},
-                {"keyboard", {
-                    {"move_forward", scancode_name(keyboard_bindings.move_forward)},
-                    {"move_backward", scancode_name(keyboard_bindings.move_backward)},
-                    {"strafe_left", scancode_name(keyboard_bindings.strafe_left)},
-                    {"strafe_right", scancode_name(keyboard_bindings.strafe_right)},
-                    {"fire", scancode_name(keyboard_bindings.fire)},
-                    {"jump", scancode_name(keyboard_bindings.jump)},
-                    {"crouch", scancode_name(keyboard_bindings.crouch)},
-                    {"start", scancode_name(keyboard_bindings.start)},
-                    {"open", scancode_name(keyboard_bindings.open)},
-                    {"previous_weapon", scancode_name(keyboard_bindings.previous_weapon)},
-                    {"next_weapon", scancode_name(keyboard_bindings.next_weapon)},
-                    {"inventory_previous", scancode_name(keyboard_bindings.inventory_previous)},
-                    {"inventory_next", scancode_name(keyboard_bindings.inventory_next)}
-                }}
+                {"keyboard", keyboard_config_json()}
             }.dump(4) << '\n';
         }
         return;
@@ -446,6 +783,7 @@ static void load_input_config(const std::filesystem::path& data_path) {
     try {
         const nlohmann::json config = nlohmann::json::parse(std::ifstream(config_path));
         duke64::set_frame_rate_mode(parse_frame_rate(config));
+        duke64::configured_aspect_ratio.store(parse_aspect_ratio(config), std::memory_order_relaxed);
         mouse_sensitivity = std::clamp(config.value("mouse_sensitivity", mouse_sensitivity), 0.1f, 4.0f);
         window_width = std::clamp(config.value("window_width", window_width), 640, 7680);
         window_height = std::clamp(config.value("window_height", window_height), 360, 4320);
@@ -460,26 +798,138 @@ static void load_input_config(const std::filesystem::path& data_path) {
             const SDL_Scancode value = SDL_GetScancodeFromName(keyboard[key].get<std::string>().c_str());
             return value == SDL_SCANCODE_UNKNOWN ? fallback : value;
         };
-        keyboard_bindings.move_forward = read_scancode("move_forward", keyboard_bindings.move_forward);
-        keyboard_bindings.move_backward = read_scancode("move_backward", keyboard_bindings.move_backward);
-        keyboard_bindings.strafe_left = read_scancode("strafe_left", keyboard_bindings.strafe_left);
-        keyboard_bindings.strafe_right = read_scancode("strafe_right", keyboard_bindings.strafe_right);
-        keyboard_bindings.fire = read_scancode("fire", keyboard_bindings.fire);
-        keyboard_bindings.jump = read_scancode("jump", keyboard_bindings.jump);
-        keyboard_bindings.crouch = read_scancode("crouch", keyboard_bindings.crouch);
-        keyboard_bindings.start = read_scancode("start", keyboard_bindings.start);
-        keyboard_bindings.open = read_scancode("open", keyboard_bindings.open);
-        keyboard_bindings.previous_weapon = read_scancode("previous_weapon", keyboard_bindings.previous_weapon);
-        keyboard_bindings.next_weapon = read_scancode("next_weapon", keyboard_bindings.next_weapon);
-        keyboard_bindings.inventory_previous = read_scancode("inventory_previous", keyboard_bindings.inventory_previous);
-        keyboard_bindings.inventory_next = read_scancode("inventory_next", keyboard_bindings.inventory_next);
+        KeyboardBindings bindings = get_keyboard_bindings();
+        bindings.move_forward = read_scancode("move_forward", bindings.move_forward);
+        bindings.move_backward = read_scancode("move_backward", bindings.move_backward);
+        bindings.strafe_left = read_scancode("strafe_left", bindings.strafe_left);
+        bindings.strafe_right = read_scancode("strafe_right", bindings.strafe_right);
+        bindings.fire = read_scancode("fire", bindings.fire);
+        bindings.jump = read_scancode("jump", bindings.jump);
+        bindings.crouch = read_scancode("crouch", bindings.crouch);
+        bindings.mighty_foot = read_scancode("mighty_foot", bindings.mighty_foot);
+        bindings.start = read_scancode("start", bindings.start);
+        bindings.open = read_scancode("open", bindings.open);
+        bindings.previous_weapon = read_scancode("previous_weapon", bindings.previous_weapon);
+        bindings.next_weapon = read_scancode("next_weapon", bindings.next_weapon);
+        bindings.inventory_previous = read_scancode("inventory_previous", bindings.inventory_previous);
+        bindings.inventory_next = read_scancode("inventory_next", bindings.inventory_next);
+        {
+            std::lock_guard lock(keyboard_bindings_mutex);
+            keyboard_bindings = bindings;
+        }
     }
     catch (const nlohmann::json::exception& error) {
         std::fprintf(stderr, "Ignoring invalid input config %s: %s\n", config_path.string().c_str(), error.what());
     }
 }
 
-static Uint32 mouse_buttons;
+extern "C" int duke64_controls_get_action_count() {
+    return keyboard_action_count;
+}
+
+extern "C" const char* duke64_controls_get_action_name(int action) {
+    return keyboard_binding_action_name(action);
+}
+
+extern "C" const char* duke64_controls_get_binding_name(int action) {
+    if (action < 0 || action >= keyboard_action_count) {
+        return "";
+    }
+    const char* name = SDL_GetScancodeName(get_keyboard_binding(action, get_keyboard_bindings()));
+    return name != nullptr && name[0] != '\0' ? name : "UNBOUND";
+}
+
+static constexpr int mouse_option_sensitivity = 0;
+static constexpr int mouse_option_invert_x = 1;
+static constexpr int mouse_option_invert_y = 2;
+static constexpr int mouse_option_count = 3;
+
+extern "C" int duke64_controls_get_option_count() {
+    return mouse_option_count;
+}
+
+extern "C" const char* duke64_controls_get_option_name(int option) {
+    switch (option) {
+    case mouse_option_sensitivity: return "MOUSE SENS";
+    case mouse_option_invert_x: return "INVERT AIM X";
+    case mouse_option_invert_y: return "INVERT AIM Y";
+    default: return "";
+    }
+}
+
+extern "C" const char* duke64_controls_get_option_value(int option) {
+    static thread_local char value[32];
+    switch (option) {
+    case mouse_option_sensitivity:
+        std::snprintf(value, sizeof(value), "%.2f", mouse_sensitivity);
+        break;
+    case mouse_option_invert_x:
+        std::snprintf(value, sizeof(value), "%s", invert_aim_x ? "ON" : "OFF");
+        break;
+    case mouse_option_invert_y:
+        std::snprintf(value, sizeof(value), "%s", invert_aim_y ? "ON" : "OFF");
+        break;
+    default:
+        value[0] = '\0';
+        break;
+    }
+    return value;
+}
+
+extern "C" void duke64_controls_adjust_option(int option, int direction) {
+    if (direction == 0) {
+        return;
+    }
+    bool changed = false;
+    switch (option) {
+    case mouse_option_sensitivity: {
+        const float previous = mouse_sensitivity;
+        mouse_sensitivity = std::clamp(
+            mouse_sensitivity + static_cast<float>(direction) * 0.1f,
+            0.1f,
+            4.0f
+        );
+        changed = mouse_sensitivity != previous;
+        break;
+    }
+    case mouse_option_invert_x:
+        invert_aim_x = !invert_aim_x;
+        changed = true;
+        break;
+    case mouse_option_invert_y:
+        invert_aim_y = !invert_aim_y;
+        changed = true;
+        break;
+    default:
+        return;
+    }
+    if (changed) {
+        save_input_config();
+    }
+}
+
+extern "C" int duke64_controls_get_rebind_action() {
+    return keyboard_rebind_action.load(std::memory_order_acquire);
+}
+
+extern "C" int duke64_controls_is_rebinding() {
+    return duke64_controls_get_rebind_action() >= 0 ? 1 : 0;
+}
+
+extern "C" void duke64_controls_begin_rebind(int action) {
+    if (action < 0 || action >= keyboard_action_count) {
+        return;
+    }
+    keyboard_rebind_result.store(0, std::memory_order_release);
+    keyboard_rebind_suppress_input.store(false, std::memory_order_release);
+    keyboard_rebind_action.store(action, std::memory_order_release);
+}
+
+extern "C" int duke64_controls_poll_rebind_result() {
+    return keyboard_rebind_result.exchange(0, std::memory_order_acq_rel);
+}
+
+
 
 static void* create_gfx() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
@@ -668,12 +1118,73 @@ static void process_controller_sensor(const SDL_ControllerSensorEvent& event) {
 }
 
 
+static int weapon_slot_from_scancode(SDL_Scancode scancode) {
+    switch (scancode) {
+    case SDL_SCANCODE_1:
+    case SDL_SCANCODE_KP_1:
+        return 1;
+    case SDL_SCANCODE_2:
+    case SDL_SCANCODE_KP_2:
+        return 2;
+    case SDL_SCANCODE_3:
+    case SDL_SCANCODE_KP_3:
+        return 3;
+    case SDL_SCANCODE_4:
+    case SDL_SCANCODE_KP_4:
+        return 4;
+    case SDL_SCANCODE_5:
+    case SDL_SCANCODE_KP_5:
+        return 5;
+    case SDL_SCANCODE_6:
+    case SDL_SCANCODE_KP_6:
+        return 6;
+    case SDL_SCANCODE_7:
+    case SDL_SCANCODE_KP_7:
+        return 7;
+    case SDL_SCANCODE_8:
+    case SDL_SCANCODE_KP_8:
+        return 8;
+    case SDL_SCANCODE_9:
+    case SDL_SCANCODE_KP_9:
+        return 9;
+    default:
+        return 0;
+    }
+}
+
 static void update_gfx(void*) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
             const SDL_Scancode scancode = event.key.keysym.scancode;
-            startup_skip_pending.store(true, std::memory_order_release);
+            const int rebind_action = keyboard_rebind_action.exchange(-1, std::memory_order_acq_rel);
+            if (rebind_action >= 0) {
+                if (scancode == SDL_SCANCODE_ESCAPE) {
+                    keyboard_rebind_result.store(-(rebind_action + 1), std::memory_order_release);
+                }
+                else if (scancode != SDL_SCANCODE_UNKNOWN) {
+                    set_keyboard_binding(rebind_action, scancode);
+                    save_input_config();
+                    const int encoded_scancode = static_cast<int>(scancode) + 1;
+                    keyboard_rebind_result.store(
+                        ((rebind_action + 1) << 16) | encoded_scancode,
+                        std::memory_order_release
+                    );
+                }
+                keyboard_rebind_suppress_input.store(true, std::memory_order_release);
+                continue;
+            }
+            const KeyboardBindings bindings = get_keyboard_bindings();
+            const int weapon_slot = weapon_slot_from_scancode(scancode);
+            if (weapon_slot > 0 && gameplay_active.load(std::memory_order_relaxed)) {
+                keyboard_weapon_press_counts[weapon_slot].fetch_add(1, std::memory_order_relaxed);
+            }
+            if (scancode == bindings.start)
+                keyboard_start_pending.store(true, std::memory_order_release);
+            if (scancode == bindings.mighty_foot)
+                keyboard_mighty_foot_pending.store(true, std::memory_order_release);
+            if (scancode != SDL_SCANCODE_ESCAPE)
+                startup_skip_pending.store(true, std::memory_order_release);
             switch (scancode) {
             case SDL_SCANCODE_RETURN:
             case SDL_SCANCODE_KP_ENTER:
@@ -697,6 +1208,13 @@ static void update_gfx(void*) {
             default:
                 break;
             }
+        }
+        else if (event.type == SDL_MOUSEBUTTONDOWN) {
+            startup_skip_pending.store(true, std::memory_order_release);
+            if (event.button.button == SDL_BUTTON_LEFT)
+                mouse_left_pending.store(true, std::memory_order_release);
+            else if (event.button.button == SDL_BUTTON_RIGHT)
+                mouse_right_pending.store(true, std::memory_order_release);
         }
         else if (event.type == SDL_CONTROLLERBUTTONDOWN) {
             startup_skip_pending.store(true, std::memory_order_release);
@@ -729,16 +1247,33 @@ static void update_gfx(void*) {
             process_controller_sensor(event.csensor);
         }
         else if (event.type == SDL_WINDOWEVENT &&
+                 event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+            const bool fullscreen =
+                (SDL_GetWindowFlags(window) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) != 0;
+            if (!fullscreen && event.window.data1 > 0 && event.window.data2 > 0) {
+                window_width = event.window.data1;
+                window_height = event.window.data2;
+                save_window_size_config();
+            }
+        }
+        else if (event.type == SDL_WINDOWEVENT &&
                  event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
             keyboard_enter_pending.store(false, std::memory_order_release);
+            keyboard_enter_was_down.store(false, std::memory_order_release);
+            keyboard_escape_was_down.store(false, std::memory_order_release);
             keyboard_escape_pending.store(false, std::memory_order_release);
-            keyboard_up_pending.store(false, std::memory_order_release);
+            menu_escape_pending.store(false, std::memory_order_release);
             keyboard_down_pending.store(false, std::memory_order_release);
             keyboard_left_pending.store(false, std::memory_order_release);
             keyboard_right_pending.store(false, std::memory_order_release);
+            keyboard_start_pending.store(false, std::memory_order_release);
+            keyboard_mighty_foot_pending.store(false, std::memory_order_release);
+            mouse_left_pending.store(false, std::memory_order_release);
+            mouse_right_pending.store(false, std::memory_order_release);
+            mouse_turn_delta.store(0, std::memory_order_release);
+            mouse_look_delta.store(0, std::memory_order_release);
+            mouse_buttons.store(0, std::memory_order_release);
             SDL_SetRelativeMouseMode(SDL_FALSE);
-            mouse_turn = 0;
-            mouse_look = 0;
         }
         else if (event.type == SDL_WINDOWEVENT &&
                  event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
@@ -810,7 +1345,11 @@ static void poll_input() {
             }
         }
     }
-    mouse_buttons = SDL_GetRelativeMouseState(&mouse_turn, &mouse_look);
+    int turn_delta = 0;
+    int look_delta = 0;
+    mouse_buttons.store(SDL_GetRelativeMouseState(&turn_delta, &look_delta), std::memory_order_release);
+    mouse_turn_delta.fetch_add(turn_delta, std::memory_order_acq_rel);
+    mouse_look_delta.fetch_add(look_delta, std::memory_order_acq_rel);
 }
 static float normalize_stick_axis(Sint16 value, bool invert) {
     const float deadzone = std::clamp(controller_deadzone, 0.0f, 0.9f);
@@ -838,6 +1377,26 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
     constexpr uint16_t N64_C_LEFT = 0x0002;
     constexpr uint16_t N64_C_RIGHT = 0x0001;
 
+    if (controller_num >= 0 && controller_num < static_cast<int>(mighty_foot_states.size())) {
+        mighty_foot_states[static_cast<size_t>(controller_num)].store(false, std::memory_order_release);
+    }
+    if (keyboard_rebind_action.load(std::memory_order_acquire) >= 0 ||
+        keyboard_rebind_suppress_input.load(std::memory_order_acquire)) {
+        if (controller_num == 0) {
+            keyboard_move_forward_amount.store(0, std::memory_order_release);
+            keyboard_move_backward_amount.store(0, std::memory_order_release);
+            keyboard_strafe_left_amount.store(0, std::memory_order_release);
+            keyboard_strafe_right_amount.store(0, std::memory_order_release);
+        }
+        *buttons = 0;
+        *x = 0.0f;
+        *y = 0.0f;
+        if (controller_num == 0) {
+            keyboard_rebind_suppress_input.store(false, std::memory_order_release);
+        }
+        return true;
+    }
+
     if (controller_num > 0) {
         const size_t physical_slot = static_cast<size_t>(controller_num - 1);
         if (physical_slot >= controllers.size() || controllers[physical_slot] == nullptr ||
@@ -848,6 +1407,7 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
         auto pressed = [game_controller](SDL_GameControllerButton button) {
             return SDL_GameControllerGetButton(game_controller, button) != 0;
         };
+        const bool gameplay = gameplay_active.load(std::memory_order_relaxed);
         uint16_t state = 0;
         const float left_x = normalize_stick_axis(
             SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_LEFTX), false);
@@ -857,7 +1417,7 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
             SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTX), invert_aim_x);
         float right_y = normalize_stick_axis(
             SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTY), invert_aim_y);
-        if (gameplay_active.load(std::memory_order_relaxed) && gyro_sensitivity > 0.0f) {
+        if (gameplay && gyro_sensitivity > 0.0f) {
             std::array<float, 2> gyro{};
             {
                 std::lock_guard lock(controller_motion_mutex);
@@ -868,38 +1428,76 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
             right_x = std::clamp(right_x + gyro_x * gyro_sensitivity, -1.0f, 1.0f);
             right_y = std::clamp(right_y + gyro_y * gyro_sensitivity, -1.0f, 1.0f);
         }
-        if (pressed(SDL_CONTROLLER_BUTTON_A)) state |= N64_C_UP;       // Jump.
-        if (pressed(SDL_CONTROLLER_BUTTON_B)) state |= N64_C_DOWN;     // Crouch.
+        if (gameplay) {
+            if (pressed(SDL_CONTROLLER_BUTTON_A)) state |= N64_C_UP;       // Jump.
+            if (pressed(SDL_CONTROLLER_BUTTON_B)) state |= N64_C_DOWN;     // Crouch.
+        }
+        else {
+            if (pressed(SDL_CONTROLLER_BUTTON_A)) state |= N64_A;          // Menu select.
+            if (pressed(SDL_CONTROLLER_BUTTON_B)) state |= N64_B;          // Menu back.
+        }
         if (pressed(SDL_CONTROLLER_BUTTON_X) ||
             SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 16000)
-            state |= N64_Z;                                           // Fire.
-        if (pressed(SDL_CONTROLLER_BUTTON_Y)) state |= N64_A;          // Next weapon.
+            state |= N64_Z;                                                // Fire.
+        if (pressed(SDL_CONTROLLER_BUTTON_Y)) state |= N64_A;               // Next/select.
+        if (pressed(SDL_CONTROLLER_BUTTON_BACK)) state |= N64_B;            // Previous/back.
         if (pressed(SDL_CONTROLLER_BUTTON_START)) state |= N64_START;
         if (pressed(SDL_CONTROLLER_BUTTON_DPAD_UP) || right_y < -0.35f) state |= N64_DPAD_UP;
         if (pressed(SDL_CONTROLLER_BUTTON_DPAD_DOWN) || right_y > 0.35f) state |= N64_DPAD_DOWN;
-        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_LEFT) || left_x < -0.35f) state |= N64_DPAD_LEFT;
-        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || left_x > 0.35f) state |= N64_DPAD_RIGHT;
-        if (pressed(SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) state |= N64_L; // Inventory.
-        if (pressed(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) state |= N64_R; // Open/use.
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_LEFT)) state |= N64_DPAD_LEFT;  // Inventory previous.
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) state |= N64_DPAD_RIGHT; // Inventory next.
+        if (gameplay && left_x < -0.35f) state |= N64_C_LEFT;                 // Strafe left.
+        if (gameplay && left_x > 0.35f) state |= N64_C_RIGHT;                // Strafe right.
+        if (pressed(SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) state |= N64_L;    // Inventory.
+        if (pressed(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) state |= N64_R;   // Open/use.
+        mighty_foot_states[static_cast<size_t>(controller_num)].store(
+            gameplay && pressed(SDL_CONTROLLER_BUTTON_RIGHTSTICK),
+            std::memory_order_release
+        );
         *buttons = state;
         *x = right_x;
-        *y = left_y;
+        const float move_scale = pressed(SDL_CONTROLLER_BUTTON_LEFTSTICK) ? 1.0f : 0.5f;
+        *y = left_y * move_scale;
         return true;
     }
     if (controller_num != 0) return false;
 
     const Uint8* keys = SDL_GetKeyboardState(nullptr);
     auto pressed = [keys](SDL_Scancode key) { return keys[key] != 0; };
+    const KeyboardBindings bindings = get_keyboard_bindings();
     uint16_t state = 0;
-    const bool mouse_left = (mouse_buttons & SDL_BUTTON_LMASK) != 0;
+    const bool mouse_left = (mouse_buttons.load(std::memory_order_acquire) & SDL_BUTTON_LMASK) != 0;
+    const bool mouse_right = (mouse_buttons.load(std::memory_order_acquire) & SDL_BUTTON_RMASK) != 0;
+    const bool mouse_left_click = mouse_left_pending.exchange(false, std::memory_order_acq_rel);
+    const bool mouse_right_click = mouse_right_pending.exchange(false, std::memory_order_acq_rel);
+    const int turn_delta = mouse_turn_delta.exchange(0, std::memory_order_acq_rel);
+    const int look_delta = mouse_look_delta.exchange(0, std::memory_order_acq_rel);
     const bool gameplay = gameplay_active.load(std::memory_order_relaxed);
+    const bool enter_pressed = keyboard_enter_pending.exchange(false, std::memory_order_acq_rel);
+    const bool escape_pressed = keyboard_escape_pending.exchange(false, std::memory_order_acq_rel);
+    const bool start_pending = keyboard_start_pending.exchange(false, std::memory_order_acq_rel);
+    const bool enter_held =
+        pressed(SDL_SCANCODE_RETURN) || pressed(SDL_SCANCODE_KP_ENTER);
+    const bool escape_held = pressed(SDL_SCANCODE_ESCAPE);
+    const bool enter_was_down =
+        keyboard_enter_was_down.exchange(enter_held, std::memory_order_acq_rel);
+    const bool escape_was_down =
+        keyboard_escape_was_down.exchange(escape_held, std::memory_order_acq_rel);
+    const bool enter_rising = enter_held && !enter_was_down;
+    const bool escape_rising = escape_held && !escape_was_down;
+    const bool escape_active = escape_pressed || escape_rising;
+    if (!gameplay && escape_active)
+        menu_escape_pending.store(true, std::memory_order_release);
     const bool enter_active =
-        pressed(SDL_SCANCODE_RETURN) ||
-        pressed(SDL_SCANCODE_KP_ENTER) ||
-        keyboard_enter_pending.exchange(false, std::memory_order_acq_rel);
-    const bool escape_active =
-        pressed(SDL_SCANCODE_ESCAPE) ||
-        keyboard_escape_pending.exchange(false, std::memory_order_acq_rel);
+        enter_pressed ||
+        enter_held ||
+        (start_pending && !escape_active);
+    const bool mighty_foot_pending =
+        keyboard_mighty_foot_pending.exchange(false, std::memory_order_acq_rel);
+    const bool start_active =
+        bindings.start == SDL_SCANCODE_RETURN
+            ? enter_active
+            : (pressed(bindings.start) || start_pending);
     const bool up_active =
         pressed(SDL_SCANCODE_UP) ||
         keyboard_up_pending.exchange(false, std::memory_order_acq_rel);
@@ -912,36 +1510,76 @@ static bool get_input(int controller_num, uint16_t* buttons, float* x, float* y)
     const bool right_active =
         pressed(SDL_SCANCODE_RIGHT) ||
         keyboard_right_pending.exchange(false, std::memory_order_acq_rel);
-    if (pressed(SDL_SCANCODE_LCTRL) || pressed(keyboard_bindings.fire) || mouse_left)
+    mighty_foot_states[0].store(
+        gameplay && (pressed(bindings.mighty_foot) || mighty_foot_pending ||
+                     mouse_right || mouse_right_click),
+        std::memory_order_release
+    );
+    if (gameplay && (pressed(bindings.fire) || mouse_left))
         state |= N64_Z;                                               // PC fire.
-    if (pressed(keyboard_bindings.jump)) state |= N64_C_UP;            // PC jump.
-    if (pressed(keyboard_bindings.crouch)) state |= N64_C_DOWN;        // PC crouch.
-    if (gameplay && (pressed(keyboard_bindings.start) ||
-                     (keyboard_bindings.start == SDL_SCANCODE_RETURN && enter_active)))
-        state |= N64_START;                                           // Enter opens the gameplay menu.
-    if (!gameplay && enter_active) state |= N64_A;                    // Enter selects menu items.
-    if (escape_active) state |= N64_B;                                // Escape backs out of menus.
-    if (up_active || mouse_look < -2) state |= N64_DPAD_UP;
-    if (down_active || mouse_look > 2) state |= N64_DPAD_DOWN;
-    if (left_active || pressed(keyboard_bindings.strafe_left))
-        state |= N64_DPAD_LEFT;                                       // Arrow/A strafe left.
-    if (right_active || pressed(keyboard_bindings.strafe_right))
-        state |= N64_DPAD_RIGHT;                                      // Arrow/D strafe right.
-    if (pressed(keyboard_bindings.inventory_previous)) state |= N64_C_LEFT;
-    if (pressed(keyboard_bindings.inventory_next)) state |= N64_C_RIGHT;
-    if (pressed(keyboard_bindings.open)) state |= N64_R;                // Open/use.
-    if (pressed(keyboard_bindings.previous_weapon) || pressed(SDL_SCANCODE_PAGEUP)) state |= N64_B;
-    if (pressed(keyboard_bindings.next_weapon) || pressed(SDL_SCANCODE_PAGEDOWN)) state |= N64_A;
+    if (pressed(bindings.jump)) state |= N64_C_UP;            // PC jump.
+    if (pressed(bindings.crouch)) state |= N64_C_DOWN;        // PC crouch.
+    if (gameplay && start_active)
+        state |= N64_START;                                           // Start opens the gameplay menu.
+    if (enter_active)
+        state |= N64_A;                                                // Enter selects menu items, including difficulty.
+    if (escape_active) {
+        state |= gameplay ? N64_START : N64_B;                        // Escape opens/backtracks menus.
+        if (gameplay) {
+            gameplay_active.store(false, std::memory_order_relaxed);
+        }
+    }
+    if (gameplay) {
+        mouse_turn_remainder += static_cast<float>(turn_delta) *
+            mouse_input_gain * mouse_sensitivity;
+        mouse_look_remainder += static_cast<float>(look_delta) *
+            mouse_input_gain * mouse_sensitivity * (invert_aim_y ? -1.0f : 1.0f);
+    }
+    else {
+        mouse_turn_remainder = 0.0f;
+        mouse_look_remainder = 0.0f;
+    }
+    if (up_active) state |= N64_DPAD_UP;
+    if (down_active) state |= N64_DPAD_DOWN;
+    if (left_active) state |= N64_C_LEFT;                             // Arrow strafe.
+    if (right_active) state |= N64_C_RIGHT;                           // Arrow strafe.
+
+
+    if (pressed(bindings.inventory_previous)) state |= N64_DPAD_LEFT;
+    if (pressed(bindings.inventory_next)) state |= N64_DPAD_RIGHT;
+    if (pressed(bindings.open)) state |= N64_R;              // Open/use.
+    if (pressed(bindings.previous_weapon) || pressed(SDL_SCANCODE_PAGEUP)) state |= N64_B;
+    if (pressed(bindings.next_weapon) || pressed(SDL_SCANCODE_PAGEDOWN)) state |= N64_A;
     *buttons = state;
-    *x = std::clamp(static_cast<float>(mouse_turn) * 0.75f * mouse_sensitivity, -80.0f, 80.0f);
-    const bool move_backward = pressed(keyboard_bindings.move_backward);
-    const bool move_forward = pressed(keyboard_bindings.move_forward);
+    const float mouse_stick_x = gameplay
+        ? std::clamp(std::trunc(mouse_turn_remainder), -mouse_stick_range, mouse_stick_range)
+        : 0.0f;
+    const float mouse_stick_y = gameplay
+        ? std::clamp(std::trunc(mouse_look_remainder), -mouse_stick_range, mouse_stick_range)
+        : 0.0f;
+    if (gameplay) {
+        mouse_turn_remainder -= mouse_stick_x;
+        mouse_look_remainder -= mouse_stick_y;
+    }
+    *x = mouse_stick_x / mouse_stick_range;
+    *y = mouse_stick_y / mouse_stick_range;
+    const bool move_backward = pressed(bindings.move_backward);
+    const bool move_forward = pressed(bindings.move_forward);
+    const bool strafe_left = pressed(bindings.strafe_left);
+    const bool strafe_right = pressed(bindings.strafe_right);
     const bool run_held = pressed(SDL_SCANCODE_LSHIFT) || pressed(SDL_SCANCODE_RSHIFT);
     const bool run_active = run_held ||
         (run_toggle.load(std::memory_order_relaxed) &&
          gameplay_active.load(std::memory_order_relaxed));
-    const float move_scale = run_active ? 1.0f : 0.5f;
-    *y = (static_cast<float>(move_backward) - static_cast<float>(move_forward)) * move_scale;
+    const int move_amount = run_active ? 0xA4 : 0x50;
+    keyboard_move_forward_amount.store(
+        gameplay && move_forward ? move_amount : 0, std::memory_order_release);
+    keyboard_move_backward_amount.store(
+        gameplay && move_backward ? move_amount : 0, std::memory_order_release);
+    keyboard_strafe_left_amount.store(
+        gameplay && strafe_left ? move_amount : 0, std::memory_order_release);
+    keyboard_strafe_right_amount.store(
+        gameplay && strafe_right ? move_amount : 0, std::memory_order_release);
     return true;
 }
 static void set_rumble(int controller_num, bool enabled) {

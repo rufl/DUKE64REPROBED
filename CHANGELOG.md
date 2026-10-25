@@ -25,18 +25,27 @@ All notable changes to the Duke Nukem 64 recompilation are documented here.
 - Added configurable keyboard bindings using SDL scancode names.
 - Added a persistent Controller Pak backend using `duke64.mempak`.
 - Added an F3 rendering diagnostics overlay with measured presented FPS, display refresh rate, active graphics API, backbuffer size, resolution scale, and presentation mode.
+- Added an in-game Display Options resolution selector that cycles common window sizes and persists the selected dimensions.
+- Added a Display Options aspect-ratio selector with persistent 4:3 preservation or window-adaptive widescreen rendering.
+- Added an in-game Keyboard Controls page under Control Options with
+  immediate keyboard rebinding and `duke64.json` persistence.
+- Added number-key weapon slots with double-tap selection for alternate weapons.
 
 ### Changed
 
 - Registered the selected user-data directory with N64ModernRuntime so save and configuration services share one location.
 - Reworked default keyboard and mouse controls for PC play:
   - WASD movement and strafing.
-  - Mouse turn/aim.
-  - Left mouse, Left Ctrl, and Z fire.
-  - Space jump, C crouch, E open/use, Q/R weapon selection, Tab inventory, and bracket inventory cycling.
-- Updated the recompiled controlmap defaults for PC inventory and strafe controls.
+  - Relative mouse turn and mouselook with configurable sensitivity and aim inversion.
+  - Left mouse and Z fire.
+  - Space jump, Ctrl crouch, E open/use, Q/R weapon selection, Tab inventory, and bracket inventory cycling.
+  - V, right mouse button, and controller R3 trigger Mighty Foot.
+- Aligned the recompiled default controlmap with the host PC and controller action mappings.
 - Corrected PC movement so Shift runs while W/S are held; Caps Lock toggles the same run modifier without forcing forward movement.
-- Added Xbox-compatible controller mappings for movement, aiming, jump, crouch, fire, weapon selection, inventory, and open/use.
+- Fixed keyboard remapping to persist the captured key immediately from the options menu.
+- Added mouse sensitivity and horizontal/vertical aim inversion controls to the Control Options page.
+- Restored visible gamma and contrast slider indicators in Display Options.
+- Added complete Xbox-compatible controller mappings for movement, aiming, jump, crouch, fire, weapon selection, inventory, open/use, menu navigation, and Mighty Foot.
 - Added safe controller hot-plug handling and accurate connected-device reporting.
 - Added local multiplayer input support: keyboard/mouse player 1 plus up to three SDL controllers on ports 2–4.
 - Confirmed the same local controller layout supports the game's built-in cooperative mode.

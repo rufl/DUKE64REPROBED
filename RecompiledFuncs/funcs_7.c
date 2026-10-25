@@ -1,11 +1,30 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
 
 extern void duke64_set_display_settings(float gamma, float contrast);
+extern int duke64_get_aspect_ratio_mode(void);
+extern void duke64_set_aspect_ratio_mode(int mode);
+extern int duke64_get_window_width(void);
+extern int duke64_get_window_height(void);
+extern void duke64_adjust_window_resolution(int direction);
+extern int duke64_controls_get_action_count(void);
+extern const char* duke64_controls_get_action_name(int action);
+extern const char* duke64_controls_get_binding_name(int action);
+extern int duke64_controls_get_option_count(void);
+extern const char* duke64_controls_get_option_name(int option);
+extern const char* duke64_controls_get_option_value(int option);
+extern void duke64_controls_adjust_option(int option, int direction);
+extern int duke64_controls_get_rebind_action(void);
+extern int duke64_controls_is_rebinding(void);
+extern void duke64_controls_begin_rebind(int action);
+extern int duke64_controls_poll_rebind_result(void);
+
+extern int duke64_consume_menu_escape(void);
+extern void duke64_request_quit(void);
 
 static int menus_display_gamma = 100;
 static int menus_display_contrast = 100;
+static int menus_display_aspect_ratio = 0;
 
 static void menus_write_guest_string(uint8_t* rdram, gpr address, const char* text) {
     size_t i = 0;
@@ -15,6 +34,31 @@ static void menus_write_guest_string(uint8_t* rdram, gpr address, const char* te
     }
     MEM_B(i, address) = 0;
 }
+static int menus_handle_escape(uint8_t* rdram) {
+    (void)rdram;
+    if (duke64_consume_menu_escape() == 0) {
+        return 0;
+    }
+
+    const uint8_t current_menu = MEM_BU(0X0, S32(0X801012B0));
+    if (current_menu == 1) {
+        duke64_request_quit();
+        return 1;
+    }
+
+    uint8_t next_menu = 1;
+    uint8_t row_count = 6;
+    if (current_menu == 19 || current_menu == 20) {
+        next_menu = 0XE;
+        row_count = 5;
+    }
+    const gpr menu_base = S32(0X8010 << 16);
+    MEM_B(0X12B0, menu_base) = next_menu;
+    MEM_B(0X12B4, menu_base) = next_menu;
+    MEM_B(0X12B8, menu_base) = row_count;
+    MEM_B(0X12A8, menu_base) = 0;
+    return 1;
+}
 
 static void menus_display_update(uint8_t* rdram) {
     const uint16_t input = MEM_HU(0X0, S32(0X8027A3BE));
@@ -22,56 +66,116 @@ static void menus_display_update(uint8_t* rdram) {
         return;
     }
 
-    int* value = NULL;
-    int minimum = 0;
-    int maximum = 0;
     const uint8_t selection = MEM_BU(0X0, S32(0X801012A8));
-    if (selection == 0) {
-        value = &menus_display_gamma;
-        minimum = 50;
-        maximum = 200;
+    if (selection == 2) {
+        int direction = 0;
+        if ((input & 0X222) != 0) {
+            direction = -1;
+        }
+        else if ((input & 0X111) != 0) {
+            direction = 1;
+        }
+        if (direction != 0) {
+            duke64_adjust_window_resolution(direction);
+        }
+        return;
     }
-    else if (selection == 1) {
-        value = &menus_display_contrast;
-        minimum = 50;
-        maximum = 150;
-    }
-    else {
+    if (selection != 3) {
+        int* value = NULL;
+        int minimum = 0;
+        int maximum = 0;
+        if (selection == 0) {
+            value = &menus_display_gamma;
+            minimum = 50;
+            maximum = 200;
+        }
+        else if (selection == 1) {
+            value = &menus_display_contrast;
+            minimum = 50;
+            maximum = 150;
+        }
+        else {
+            return;
+        }
+
+        int delta = 0;
+        if ((input & 0X222) != 0) {
+            delta = -5;
+        }
+        else if ((input & 0X111) != 0) {
+            delta = 5;
+        }
+        else {
+            return;
+        }
+
+        *value += delta;
+        if (*value < minimum) {
+            *value = minimum;
+        }
+        else if (*value > maximum) {
+            *value = maximum;
+        }
         return;
     }
 
-    int delta = 0;
+    int direction = 0;
     if ((input & 0X222) != 0) {
-        delta = -5;
+        direction = -1;
     }
     else if ((input & 0X111) != 0) {
-        delta = 5;
+        direction = 1;
     }
-    else {
-        return;
+    if (direction != 0) {
+        menus_display_aspect_ratio =
+            menus_display_aspect_ratio + direction < 0 ? 0 :
+            menus_display_aspect_ratio + direction > 1 ? 1 :
+            menus_display_aspect_ratio + direction;
+        duke64_set_aspect_ratio_mode(menus_display_aspect_ratio);
     }
+}
 
-    *value += delta;
-    if (*value < minimum) {
-        *value = minimum;
+static void menus_display_format_slider(
+    char* text,
+    size_t text_size,
+    const char* name,
+    int value,
+    int minimum,
+    int maximum
+) {
+    char bar[11];
+    int marker = (value - minimum) * 10 / (maximum - minimum);
+    if (marker < 0) marker = 0;
+    if (marker > 9) marker = 9;
+    for (int i = 0; i < 10; ++i) {
+        bar[i] = i == marker ? '|' : (i < marker ? '=' : '-');
     }
-    else if (*value > maximum) {
-        *value = maximum;
-    }
-    duke64_set_display_settings((float)menus_display_gamma / 100.0f, (float)menus_display_contrast / 100.0f);
+    bar[10] = '\0';
+    snprintf(text, text_size, "%s %d.%02d [%s]",
+             name, value / 100, value % 100, bar);
 }
 
 static void menus_display_write_options(uint8_t* rdram) {
     char text[32];
+    menus_display_aspect_ratio = duke64_get_aspect_ratio_mode() == 1 ? 1 : 0;
     menus_write_guest_string(rdram, S32(0X8027A2A0), "DISPLAY OPTIONS");
 
-    snprintf(text, sizeof(text), "GAMMA %d.%02d", menus_display_gamma / 100, menus_display_gamma % 100);
+    menus_display_format_slider(text, sizeof(text), "GAMMA", menus_display_gamma, 50, 200);
     menus_write_guest_string(rdram, S32(0X8027A2C8), text);
 
-    snprintf(text, sizeof(text), "CONTRAST %d.%02d", menus_display_contrast / 100, menus_display_contrast % 100);
+    menus_display_format_slider(text, sizeof(text), "CONTRAST", menus_display_contrast, 50, 150);
     menus_write_guest_string(rdram, S32(0X8027A2F0), text);
 
-    menus_write_guest_string(rdram, S32(0X8027A318), "MAIN MENU");
+    snprintf(text, sizeof(text), "RESOLUTION %dx%d",
+             duke64_get_window_width(), duke64_get_window_height());
+    menus_write_guest_string(rdram, S32(0X8027A318), text);
+
+    menus_write_guest_string(
+        rdram,
+        S32(0X8027A340),
+        menus_display_aspect_ratio == 1 ? "ASPECT EXPAND" : "ASPECT ORIGINAL"
+    );
+    menus_write_guest_string(rdram, S32(0X8027A368), "MAIN MENU");
 }
 
 static int menus_display_slider_x(int value, int minimum, int maximum) {
@@ -90,6 +194,106 @@ static void menus_display_draw_slider(uint8_t* rdram, recomp_context* ctx, int y
     MEM_W(0X10, ctx->r29) = 0XE67;
     MEM_W(0X14, ctx->r29) = 0;
     rotatesprite(rdram, ctx);
+}
+static int menus_keyboard_page = 0;
+static const int menus_keyboard_page_size = 3;
+
+static void menus_keyboard_write_options(uint8_t* rdram) {
+    char text[64];
+    const int action_count = duke64_controls_get_action_count();
+    const int option_count = duke64_controls_get_option_count();
+    const int item_count = action_count + option_count;
+    const int page_count = item_count == 0
+        ? 1
+        : (item_count + menus_keyboard_page_size - 1) / menus_keyboard_page_size;
+    if (menus_keyboard_page < 0 || menus_keyboard_page >= page_count) {
+        menus_keyboard_page = 0;
+    }
+    const int selected = MEM_BU(0X0, S32(0X801012A8));
+    const int rebind_action = duke64_controls_get_rebind_action();
+    menus_write_guest_string(rdram, S32(0X8027A2A0), "CONTROL OPTIONS");
+    for (int row = 0; row < menus_keyboard_page_size; ++row) {
+        const int item = menus_keyboard_page * menus_keyboard_page_size + row;
+        if (item >= item_count) {
+            menus_write_guest_string(rdram, S32(0X8027A2C8 + row * 0X28), "");
+            continue;
+        }
+        if (item < action_count) {
+            if (item == rebind_action && selected == row) {
+                snprintf(text, sizeof(text), "%s PRESS KEY",
+                         duke64_controls_get_action_name(item));
+            }
+            else {
+                snprintf(text, sizeof(text), "%s %s",
+                         duke64_controls_get_action_name(item),
+                         duke64_controls_get_binding_name(item));
+            }
+        }
+        else {
+            const int option = item - action_count;
+            snprintf(text, sizeof(text), "%s %s",
+                     duke64_controls_get_option_name(option),
+                     duke64_controls_get_option_value(option));
+        }
+        menus_write_guest_string(rdram, S32(0X8027A2C8 + row * 0X28), text);
+    }
+    snprintf(text, sizeof(text), "NEXT PAGE %d/%d", menus_keyboard_page + 1, page_count);
+    menus_write_guest_string(rdram, S32(0X8027A340), text);
+    menus_write_guest_string(rdram, S32(0X8027A368), "CONTROL OPTIONS");
+}
+
+
+static void menus_keyboard_update(uint8_t* rdram) {
+    duke64_controls_poll_rebind_result();
+    if (duke64_controls_is_rebinding()) {
+        return;
+    }
+
+    const uint16_t input = MEM_HU(0X0, S32(0X8027A3BE));
+    const int selection = MEM_BU(0X0, S32(0X801012A8));
+    const int action_count = duke64_controls_get_action_count();
+    const int option_count = duke64_controls_get_option_count();
+    const int item_count = action_count + option_count;
+    const int page_count = item_count == 0
+        ? 1
+        : (item_count + menus_keyboard_page_size - 1) / menus_keyboard_page_size;
+    if ((input & 0X4000) != 0) {
+        menus_keyboard_page = 0;
+        MEM_B(0X12B4, S32(0X8010 << 16)) = 0X0E;
+        MEM_B(0X12B8, S32(0X8010 << 16)) = 0X5;
+        return;
+    }
+    const int item = menus_keyboard_page * menus_keyboard_page_size + selection;
+    if (selection < menus_keyboard_page_size &&
+        item >= action_count && item < item_count) {
+        int direction = 0;
+        if ((input & 0X222) != 0) {
+            direction = -1;
+        }
+        else if ((input & 0X111) != 0) {
+            direction = 1;
+        }
+        if (direction != 0) {
+            duke64_controls_adjust_option(item - action_count, direction);
+            return;
+        }
+    }
+    if ((input & 0X8000) == 0) {
+        return;
+    }
+    if (selection < menus_keyboard_page_size) {
+        if (item < action_count) {
+            duke64_controls_begin_rebind(item);
+        }
+    }
+    else if (selection == menus_keyboard_page_size) {
+        menus_keyboard_page = (menus_keyboard_page + 1) % page_count;
+    }
+    else if (selection == menus_keyboard_page_size + 1) {
+        menus_keyboard_page = 0;
+        MEM_B(0X12B4, S32(0X8010 << 16)) = 0X0E;
+        MEM_B(0X12B8, S32(0X8010 << 16)) = 0X5;
+    }
 }
 
 RECOMP_FUNC void func_80055060(uint8_t* rdram, recomp_context* ctx) {
@@ -16783,7 +16987,6 @@ RECOMP_FUNC void menus(uint8_t* rdram, recomp_context* ctx) {
     // 0x800B78E0: sw          $s0, 0x1C($sp)
     MEM_W(0X1C, ctx->r29) = ctx->r16;
     controllervibstopall(rdram, ctx);
-        goto after_0;
     // 0x800B78E0: sw          $s0, 0x1C($sp)
     MEM_W(0X1C, ctx->r29) = ctx->r16;
     after_0:
@@ -17763,14 +17966,17 @@ L_800B7EA8:
     }
     // 0x800B7EB4: sb          $zero, -0x1($v0)
     MEM_B(-0X1, ctx->r2) = 0;
+    if (menus_handle_escape(rdram) != 0) {
+        goto L_800BAA98;
+    }
     // 0x800B7EB8: lui         $t9, 0x8010
     ctx->r25 = S32(0X8010 << 16);
     // 0x800B7EBC: lbu         $t9, 0x12B0($t9)
     ctx->r25 = MEM_BU(ctx->r25, 0X12B0);
     // 0x800B7EC0: addiu       $t7, $t9, -0x1
     ctx->r15 = ADD32(ctx->r25, -0X1);
-    // 0x800B7EC4: sltiu       $at, $t7, 0x13
-    ctx->r1 = ctx->r15 < 0X13 ? 1 : 0;
+    // 0x800B7EC4: sltiu       $at, $t7, 0x14
+    ctx->r1 = ctx->r15 < 0X14 ? 1 : 0;
     // 0x800B7EC8: beq         $at, $zero, L_800BA494
     if (ctx->r1 == 0) {
         // 0x800B7ECC: sll         $t7, $t7, 2
@@ -17809,6 +18015,7 @@ L_800B7EA8:
         case 16: goto L_800BA2DC; break;
         case 17: goto L_800B8424; break;
         case 18: goto L_duke_display_options; break;
+        case 19: goto L_duke_keyboard_controls; break;
         default: switch_error(__func__, 0x800B7EDC, 0x801097E0);
     }
     // 0x800B7EE0: nop
@@ -21561,8 +21768,16 @@ L_duke_options_display:
     MEM_B(0X12B8, ctx->r1) = ctx->r24;
         goto L_800BA494;
 
+L_duke_keyboard_controls:
+    MEM_H(0X8E, ctx->r29) = 5;
+    MEM_H(0X8C, ctx->r29) = 0X5F;
+    menus_keyboard_update(rdram);
+    menus_keyboard_write_options(rdram);
+    ctx->r17 = ADD32(0, 0X1);
+        goto L_800BA498;
+
 L_duke_display_options:
-    MEM_H(0X8E, ctx->r29) = 3;
+    MEM_H(0X8E, ctx->r29) = 5;
     MEM_H(0X8C, ctx->r29) = 0X5F;
     menus_display_update(rdram);
     menus_display_write_options(rdram);
@@ -21915,8 +22130,8 @@ L_800B95E8:
     // 0x800B95EC: addiu       $s1, $zero, 0x1
     ctx->r17 = ADD32(0, 0X1);
 L_800B95F0:
-    // 0x800B95F0: addiu       $t6, $zero, 0x4
-    ctx->r14 = ADD32(0, 0X4);
+    // 0x800B95F0: addiu       $t6, $zero, 0x5
+    ctx->r14 = ADD32(0, 0X5);
     // 0x800B95F4: addiu       $t8, $zero, 0x5F
     ctx->r24 = ADD32(0, 0X5F);
     // 0x800B95F8: lui         $a0, 0x8028
@@ -22219,20 +22434,8 @@ L_800B97BC:
     ctx->r5 = ADD32(ctx->r5, -0X69C8);
     after_110:
 L_800B97C4:
-    // 0x800B97C4: lui         $a0, 0x8028
-    ctx->r4 = S32(0X8028 << 16);
-    // 0x800B97C8: lui         $a1, 0x8011
-    ctx->r5 = S32(0X8011 << 16);
-    // 0x800B97CC: addiu       $a1, $a1, -0x69B8
-    ctx->r5 = ADD32(ctx->r5, -0X69B8);
-    // 0x800B97D0: jal         0x800BD9E4
-    // 0x800B97D4: addiu       $a0, $a0, -0x5CC0
-    ctx->r4 = ADD32(ctx->r4, -0X5CC0);
-    sprintf_recomp(rdram, ctx);
-        goto after_111;
-    // 0x800B97D4: addiu       $a0, $a0, -0x5CC0
-    ctx->r4 = ADD32(ctx->r4, -0X5CC0);
-    after_111:
+    menus_write_guest_string(rdram, S32(0X8027A340), "KEYBOARD CONTROLS");
+    menus_write_guest_string(rdram, S32(0X8027A368), "MAIN MENU");
     // 0x800B97D8: lui         $a0, 0x8028
     ctx->r4 = S32(0X8028 << 16);
     // 0x800B97DC: lhu         $a0, -0x5C42($a0)
@@ -22273,30 +22476,29 @@ L_800B97C4:
     }
     // 0x800B980C: andi        $t8, $a0, 0x222
     ctx->r24 = ctx->r4 & 0X222;
-    // 0x800B9810: addiu       $at, $zero, 0x2
     ctx->r1 = ADD32(0, 0X2);
-    // 0x800B9814: beq         $v1, $at, L_800B9908
     if (ctx->r3 == ctx->r1) {
-        // 0x800B9818: addiu       $at, $zero, 0x3
-        ctx->r1 = ADD32(0, 0X3);
-            goto L_800B9908;
+        goto L_800B9908;
     }
-    // 0x800B9818: addiu       $at, $zero, 0x3
     ctx->r1 = ADD32(0, 0X3);
-    // 0x800B981C: beq         $v1, $at, L_800B9938
     if (ctx->r3 == ctx->r1) {
-        // 0x800B9820: addiu       $s1, $zero, 0x1
+        menus_keyboard_page = 0;
+        ctx->r1 = S32(0X8010 << 16);
+        MEM_B(0X12A8, ctx->r1) = 0;
+        ctx->r17 = ADD32(0, 0X14);
+        ctx->r1 = S32(0X8010 << 16);
+        MEM_B(0X12B4, ctx->r1) = ctx->r17;
+        ctx->r14 = ADD32(0, 0X5);
+        MEM_B(0X12B8, ctx->r1) = ctx->r14;
         ctx->r17 = ADD32(0, 0X1);
-            goto L_800B9938;
-    }
-    // 0x800B9820: addiu       $s1, $zero, 0x1
-    ctx->r17 = ADD32(0, 0X1);
-    // 0x800B9824: b           L_800BA498
-    // 0x800B9828: addiu       $s1, $zero, 0x1
-    ctx->r17 = ADD32(0, 0X1);
         goto L_800BA498;
-    // 0x800B9828: addiu       $s1, $zero, 0x1
+    }
+    ctx->r1 = ADD32(0, 0X4);
+    if (ctx->r3 == ctx->r1) {
+        goto L_800B9938;
+    }
     ctx->r17 = ADD32(0, 0X1);
+    goto L_800BA498;
 L_800B982C:
     // 0x800B982C: beql        $t9, $zero, L_800B9848
     if (ctx->r25 == 0) {
@@ -24074,7 +24276,7 @@ L_800BA1E4:
     ctx->r1 = ADD32(0, 0X1);
     // 0x800BA258: addu        $t9, $v1, $t7
     ctx->r25 = ADD32(ctx->r3, ctx->r15);
-    // 0x800BA25C: beq         $t9, $at, L_800BA274
+    // 0x800BA260: beq         $t9, $at, L_800BA274
     if (ctx->r25 == ctx->r1) {
         // 0x800BA260: sw          $t9, 0x18C($s0)
         MEM_W(0X18C, ctx->r16) = ctx->r25;
@@ -24095,8 +24297,9 @@ L_800BA1E4:
             goto L_800BA294;
     }
 L_800BA274:
-    // 0x800BA274: addiu       $t7, $zero, 0x8
-    ctx->r15 = ADD32(0, 0X8);
+    // The original intro state is broken in this recompiled runtime.
+    // Start the initialized single-player game directly, as DukeMatch does.
+    ctx->r15 = ADD32(0, 0X2);
     // 0x800BA278: lui         $at, 0x800D
     ctx->r1 = S32(0X800D << 16);
     // 0x800BA27C: lui         $t9, 0x800D

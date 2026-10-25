@@ -55,6 +55,11 @@ N64Recomp's bundled dependencies, RT64's bundled dependencies, SDL, and all othe
 
 The Duke64-RE contributors maintain the PC frontend, RT64 integration, SDL input/audio integration, Controller Pak persistence bridge, generated-runtime hooks, build configuration, documentation, and fixes in this project. The checkout does not contain version-control author metadata, so individual local contributor names are not invented here; additions should be credited by name or handle when supplied by their authors.
 
+## Optional bundled asset sources
+
+- [Enhanced Resource Pack for Duke Nukem 3D](https://hrp.duke4.net/) — sky artwork credited to **Fox**. The source `hrp_art_license.txt` permits copying, alteration, and non-commercial distribution with attribution; see `mods/duke64-erp-skyboxes/ASSET_LICENSE.txt`.
+- [Duke Nukem 3D N64 Music Pack](https://hendricks266.duke4.net/music_packs_64.php) — music credited to **Eurocom** and compiled by **Hendricks266**; the source pack does not state a redistribution license. See `mods/duke64-erp-skyboxes/ASSET_LICENSE.txt` before redistributing builds containing the asset.
+
 ## License scope
 
 Original Duke64-RE-owned integration code and documentation, to the extent they are not generated from the game or derived from an upstream component, are released under the [WTFPL](LICENSE).

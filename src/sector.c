@@ -2457,6 +2457,7 @@ short getnextweapon(struct player_struct *p, short k, short j)
     }
 }
 
+
 void cheatkeys(short snum)
 {
     short i, k;

@@ -96,36 +96,61 @@ The default PC mapping is:
 | Move | `W` / `S` |
 | Run | Hold `Shift`; `Caps Lock` toggles run mode |
 | Strafe | `A` / `D` |
-| Turn and aim | Relative mouse movement |
-| Fire | Left mouse button, `Left Ctrl`, or `Z` |
+| Turn and aim | Relative mouse turn and mouselook |
+| Fire | Left mouse button or `Z` |
 | Jump | `Space` |
-| Crouch | `C` |
+| Crouch | `Ctrl` |
+| Mighty Foot | `V` or right mouse button |
 | Open/use | `E` |
 | Previous/next weapon | `Q` / `R` |
+| Weapon slots | `1`–`9` (top row or keypad) |
 | Inventory | `Tab` |
 | Inventory cycle | `[` / `]` |
 | Start/menu | `Enter` |
 | Menu navigation | Arrow keys |
 | Menu select | `Enter` |
-| Previous menu | `Escape` |
-Enter opens the in-game menu during gameplay and selects the highlighted item in menus. `Escape` backs out of the current menu. Quick taps are latched across the SDL event and game-input threads.
+| Previous menu / exit from main menu | `Escape` |
+
+Keyboard actions can be remapped in `Options -> Control Options`. Select an
+action, press the replacement key, or press `Escape` to cancel. Mouse
+sensitivity and horizontal/vertical aim inversion are also adjustable on the
+same page. Changes are written to `duke64.json` immediately. The left and
+right mouse buttons remain the default fire and Mighty Foot inputs.
+
+`Enter` opens the in-game menu during gameplay and selects the highlighted
+item in menus. The configured `start` key follows the same behavior. `Escape`
+backs out of nested menus and exits from the main menu. Mouse clicks do not
+navigate or select menu items; left and right mouse buttons remain gameplay
+inputs, and a click skips startup screens. Quick keyboard taps are latched
+across the SDL event and game-input threads.
+
+Number keys select the weapon slots in the standard Duke order: `1` pistol, `2`
+shotgun, `3` chaingun, `4` RPG, `5` pipebomb, `6` shrinker, `7` devastator,
+`8` tripbomb, and `9` freezer. Press the same number again within about 400 ms
+to select that slot's alternate weapon where one exists: dual pistols, the
+alternate shotgun, alternate RPG, remote detonator, or expander. Single presses
+continue to select the primary weapon and normal ownership/ammo checks still
+apply.
 
 The PC build skips the startup Controller Pak check; saves and loads use the persistent virtual Pak. Press any keyboard key or controller button during the remaining logo or intro screens to jump directly to the main menu.
 
 Hold either Shift key to run. Press `Caps Lock` to toggle the same run modifier without holding Shift; press it again to return to walking. This changes movement speed only and does not affect menu navigation.
 
-The N64 controlmap defaults were updated so inventory and strafe actions match these PC controls.
+The default recompiled controlmap aligns the N64 action bits with the PC
+keyboard/mouse layout and the controller layout below.
 
 ### Xbox-compatible controllers
 
 The first three SDL game controllers are assigned to local multiplayer ports 2–4:
 
-- Left stick: move and strafe.
-- Gyro aiming is available for compatible controllers when `gyro_sensitivity` is greater than zero.
+- Left stick: move; horizontal movement strafes.
+- Hold left-stick click (L3) to run.
 - Right stick: turn and aim.
-- A: jump; B: crouch; X or right trigger: fire; Y: next weapon.
-- D-pad: directional aim/strafe input.
+- Click right stick (R3): Mighty Foot.
+- A: jump; B: crouch; X or right trigger: fire; Y: next weapon; Back: previous weapon.
+- D-pad up/down: aim; D-pad left/right: cycle inventory.
 - Left shoulder: inventory; right shoulder: open/use; Start: start/menu.
+- In menus, A selects, B backs out, and directional input navigates.
 
 Local multiplayer uses the keyboard/mouse as player 1 and up to three SDL game controllers as players 2–4. The same controller layout supports the built-in split-screen Dukematch and cooperative modes after selecting local multiplayer in the game menus.
 
@@ -139,6 +164,7 @@ Controller and mouse behavior is configured in `duke64.json`:
     "window_width": 1280,
     "window_height": 720,
     "frame_rate": "60",
+    "aspect_ratio": "original",
     "controller_deadzone": 0.24,
     "gyro_sensitivity": 0.0,
     "controller_sensitivity": 1.0,
@@ -151,7 +177,8 @@ Controller and mouse behavior is configured in `duke64.json`:
         "strafe_right": "D",
         "fire": "Z",
         "jump": "Space",
-        "crouch": "C",
+        "crouch": "Left Ctrl",
+        "mighty_foot": "V",
         "start": "Return",
         "open": "E",
         "previous_weapon": "Q",
@@ -162,8 +189,15 @@ Controller and mouse behavior is configured in `duke64.json`:
 }
 ```
 
-`window_width` and `window_height` are clamped to `640–7680` and `360–4320`. `mouse_sensitivity`, `controller_sensitivity`, and `gyro_sensitivity` accept `0.0–4.0`; a gyro sensitivity of `0.0` disables motion aiming. `controller_deadzone` accepts `0.0–0.9`. Keyboard values use SDL scancode names. Invalid or missing keyboard entries fall back to defaults.
+`window_width` and `window_height` are clamped to `640–7680` and `360–4320`.
+`mouse_sensitivity` accepts `0.1–4.0`; `controller_sensitivity` accepts
+`0.1–4.0`; `gyro_sensitivity` accepts `0.0–4.0`; a gyro sensitivity of
+`0.0` disables motion aiming. `controller_deadzone` accepts `0.0–0.9`.
+Keyboard values use SDL scancode names. Invalid or missing keyboard entries
+fall back to defaults.
 `frame_rate` accepts `"30"`, `"60"`, `"90"`, `"120"`, `"144"`, `"165"`, `"240"`, `"360"`, or `"unlocked"`; it defaults to `"60"`. Fixed values request RT64 pacing/interpolation at that rate when supported. `"unlocked"` disables v-sync and the software pacing sleep, so tearing is possible and the achievable rate is limited by renderer throughput. Restart after editing this setting.
+`aspect_ratio` accepts `"original"` (the default 4:3 frame with pillarboxing) or `"expand"` (adapts the game viewport to the window's aspect ratio, including 16:9 and ultrawide displays). The same setting is available in Display Options as `ASPECT ORIGINAL`/`ASPECT EXPAND`; changes apply immediately and are saved to `duke64.json`.
+Display Options also exposes `RESOLUTION`; left/right cycles common window sizes and saves the selected `window_width`/`window_height` immediately.
 
 Press `Alt+Enter` to toggle borderless fullscreen. Relative mouse capture is released while the window is unfocused and restored when focus returns.
 
@@ -183,6 +217,12 @@ The host scheduler gives the audio client a higher virtual priority and drains c
 The AI bridge applies the N64 audio DMA length granularity (eight-byte units) before copying samples, matching the hardware contract used by the reference emulation path.
 
 On Windows, the runtime requests a 1 ms timer resolution before starting the VI thread. This prevents the default coarse `Sleep` quantum from delaying the absolute 60 Hz VI deadlines that drive audio and rendering. The emulated NTSC cadence remains 60 Hz by design; the renderer is not given an additional host-side frame cap beyond RT64's display/present pacing.
+
+## Mirrors
+
+Vanilla mirror walls now emit an RT64 mirror draw marker around their overpic geometry. The RT64 raster renderer snapshots the current color target before the first mirror draw and the mirror pixel shader samples that snapshot with a horizontal screen-space reflection. This avoids sampling a color attachment while it is being written and works with both single-sample copies and multisample resolves.
+
+This is a shader-compatible fallback, not a full reflected-room render pass. Reflections therefore do not reproduce plane-specific perspective, recursive mirrors, or a separately rendered actor scene; mirror walls remain usable and display the content rendered before the mirror in the current frame instead of the MIRROR tile.
 
 ## Mods and asset packs
 

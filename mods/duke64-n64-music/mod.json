@@ -1,0 +1,9 @@
+{
+  "game_id": "dukenukem",
+  "id": "duke64-n64-music",
+  "display_name": "Duke Nukem 64 Music (standalone)",
+  "version": "1.0.0",
+  "authors": ["Eurocom", "Hendricks266"],
+  "minimum_recomp_version": "0.1.0",
+  "enabled_by_default": false
+}

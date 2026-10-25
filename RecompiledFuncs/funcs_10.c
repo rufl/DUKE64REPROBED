@@ -10983,6 +10983,10 @@ L_800A297C:
     ctx->r12 = S32(ctx->r25 << 2);
     // 0x800A2A20: sw          $t6, 0x8($s0)
     MEM_W(0X8, ctx->r16) = ctx->r14;
+    // Host Mighty Foot maps to the game's logical quick-kick bit 22.
+    if (duke64_mighty_foot_held(SIGNED(MEM_H(ctx->r29, 0X52)))) {
+        MEM_W(0X8, ctx->r16) |= 0X400000;
+    }
     // 0x800A2A24: sw          $zero, 0x0($a1)
     MEM_W(0X0, ctx->r5) = 0;
     // 0x800A2A28: sw          $zero, 0x0($t2)
@@ -11303,6 +11307,28 @@ L_800A2BB4:
     ctx->r24 = ADD32(ctx->r15, -0X50);
     // 0x800A2BD8: sw          $t8, -0x53D8($at)
     MEM_W(-0X53D8, ctx->r1) = ctx->r24;
+    const int keyboard_strafe_left = duke64_keyboard_strafe_left();
+    const int keyboard_strafe_right = duke64_keyboard_strafe_right();
+    const int keyboard_move_forward = duke64_keyboard_move_forward();
+    const int keyboard_move_backward = duke64_keyboard_move_backward();
+    const gpr keyboard_base = S32(0X802B << 16);
+    if (keyboard_strafe_left != 0) {
+        MEM_W(-0X53D4, keyboard_base) =
+            ADD32(MEM_W(keyboard_base, -0X53D4), keyboard_strafe_left);
+    }
+    if (keyboard_strafe_right != 0) {
+        MEM_W(-0X53D4, keyboard_base) =
+            ADD32(MEM_W(keyboard_base, -0X53D4), -keyboard_strafe_right);
+    }
+    if (keyboard_move_forward != 0) {
+        MEM_W(-0X53D8, keyboard_base) =
+            ADD32(MEM_W(keyboard_base, -0X53D8), keyboard_move_forward);
+    }
+    if (keyboard_move_backward != 0) {
+        MEM_W(-0X53D8, keyboard_base) =
+            ADD32(MEM_W(keyboard_base, -0X53D8), -keyboard_move_backward);
+    }
+
 L_800A2BDC:
     // 0x800A2BDC: lw          $v1, 0x0($t2)
     ctx->r3 = S32(MEM_W(ctx->r10, 0X0));
