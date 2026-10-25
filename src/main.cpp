@@ -435,7 +435,8 @@ static std::atomic_bool mouse_right_pending{false};
 static std::atomic<unsigned int> keyboard_weapon_press_counts[10]{};
 
 extern "C" void duke64_set_gameplay_active(int state) {
-    const bool active = state == 2;
+    // Duke's gm field uses MODE_GAME == 4; MODE_DEMO is 2.
+    const bool active = state == 4;
     gameplay_active.store(active, std::memory_order_relaxed);
     if (!active) {
         keyboard_move_forward_amount.store(0, std::memory_order_release);
@@ -589,6 +590,28 @@ static void seed_bundled_mods(const std::filesystem::path& executable_dir,
                      installed_mods.string().c_str(), error.message().c_str());
         return;
     }
+    const auto bundled_mod_needs_update = [](const std::filesystem::path& source,
+                                             const std::filesystem::path& destination) {
+        std::ifstream source_manifest(source / "mod.json");
+        std::ifstream destination_manifest(destination / "mod.json");
+        if (!source_manifest || !destination_manifest) {
+            return false;
+        }
+        try {
+            const auto source_json = nlohmann::json::parse(source_manifest);
+            const auto destination_json = nlohmann::json::parse(destination_manifest);
+            return source_json.value("version", "") !=
+                   destination_json.value("version", "");
+        }
+        catch (const nlohmann::json::exception&) {
+            return false;
+        }
+    };
+
+    const auto copy_options =
+        std::filesystem::copy_options::recursive |
+        std::filesystem::copy_options::overwrite_existing;
+
 
     for (const auto& entry : std::filesystem::directory_iterator(
              bundled_mods, std::filesystem::directory_options::skip_permission_denied, error)) {
@@ -596,14 +619,20 @@ static void seed_bundled_mods(const std::filesystem::path& executable_dir,
             break;
         }
         const auto destination = installed_mods / entry.path().filename();
-        if (std::filesystem::exists(destination, error)) {
-            error.clear();
+        const bool destination_exists = std::filesystem::exists(destination, error);
+        error.clear();
+        const bool update_bundled_mod =
+            destination_exists &&
+            bundled_mod_needs_update(entry.path(), destination);
+        if (destination_exists && !update_bundled_mod) {
             continue;
         }
         std::filesystem::copy(
             entry.path(),
             destination,
-            std::filesystem::copy_options::recursive,
+            update_bundled_mod
+                ? copy_options
+                : std::filesystem::copy_options::recursive,
             error
         );
         if (error) {

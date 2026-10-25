@@ -20,9 +20,9 @@ property remains with its respective rights holders; use this asset only with
 a legally acquired game.
 
 The source tile0080.png was converted to an uncompressed 32-bit BGRA DDS for
-RT64 with no visual resampling or mipmap generation. Duke64's shared sky
-background hash is mapped to this replacement; the original game does not
-expose separate RT64 sky-face hashes for every sky state.
+RT64 with no visual resampling or mipmap generation. The replacement is kept
+in the bundle for future per-draw sky matching, but is not enabled by the
+current runtime because its shared hash also matches scenery draws.
 
 Music source
 ------------
